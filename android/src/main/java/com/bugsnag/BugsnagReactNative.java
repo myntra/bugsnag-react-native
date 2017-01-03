@@ -190,6 +190,12 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
           }
       }
 
+      // Using autoNotify to unify the same meaning on iOS as well
+      if (options.hasKey("autoNotify")) {
+          boolean enableExceptionHandler = options.getBoolean("autoNotify");
+          config.setEnableExceptionHandler(enableExceptionHandler);
+      }
+
       return config;
   }
 }
