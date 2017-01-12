@@ -1,6 +1,6 @@
 #import "Bugsnag.h"
 #import "BugsnagReactNative.h"
-#import "RCTConvert.h"
+#import <React/RCTConvert.h>
 
 BSGBreadcrumbType BreadcrumbTypeFromString(NSString *type) {
     if ([type isEqualToString:@"log"])
@@ -189,7 +189,8 @@ RCT_EXPORT_METHOD(startWithOptions:(NSDictionary *)options) {
     config.notifyReleaseStages = notifyReleaseStages;
     [config addBeforeSendBlock:^bool(NSDictionary *_Nonnull rawEventData,
                                      BugsnagCrashReport *_Nonnull report) {
-        return ![report.errorClass containsString:@"RCTFatalException"];
+        return !([report.errorClass hasPrefix:@"RCTFatalException"]
+                 && [report.errorMessage hasPrefix:@"Unhandled JS Exception"]);
     }];
     if (notifyURLPath.length > 0) {
         NSURL *notifyURL = [NSURL URLWithString:notifyURLPath];
