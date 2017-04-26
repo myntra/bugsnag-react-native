@@ -1,6 +1,70 @@
 Changelog
 =========
 
+## 2.2.1 (2017-04-25)
+
+* Generates `lib/Bugsnag.js` to improve compatibility with tooling which does
+  not transpile source files from `node_modules`, like haul and testing tools
+* Adds a warning when using breadcrumb names which will be truncated
+
+### Bug fixes
+
+* Reorder the header files in the podspec, to work around skipped files
+  [#92](https://github.com/bugsnag/bugsnag-react-native/issues/92)
+
+## 2.2.0 (2017-03-15)
+
+### Enhancements
+* Add convenience interface to setting up native-only error handling
+
+## 2.1.0 (2017-02-28)
+
+### Enhancements
+* Adds `codeBundleId` property as an alternative to appVersion to support CodePush
+  [#74](https://github.com/bugsnag/bugsnag-react-native/pull/74)
+* Add original error to report object
+  [#61](https://github.com/bugsnag/bugsnag-react-native/pull/61)
+
+### Bug fixes
+* [android] Check each param before setting user
+  [#73](https://github.com/bugsnag/bugsnag-react-native/issues/73)
+
+## 2.0.3 (2017-02-14)
+
+### Bug fixes
+* Change react-native dependency to allow for versions past 0.40
+  [#71](https://github.com/bugsnag/bugsnag-react-native/pull/71)
+  [Michael Patricios](https://github.com/mpatric)
+* Conventionalize to fix sneaky breadcrumb logging bugs
+  [#56](https://github.com/bugsnag/bugsnag-react-native/pull/56)
+  [Kevin Cooper](https://github.com/cooperka)
+
+## 2.0.2 (2017-01-13)
+
+### Bug fixes
+
+* [ios] Fix regression where previous exception handler is not called
+
+## 2.0.1 (2017-01-12)
+
+### Bug fixes
+
+* Upgrade bugsnag-android dependency to fix issue with network requests being
+  sent on the main thread
+
+## 2.0.0 (2017-01-11)
+
+*  Updated to support react native 0.40.0
+   [#60](https://github.com/bugsnag/bugsnag-react-native/pull/60)
+   [Henrik Raitasola](https://github.com/henrikra)
+
+## 1.2.2 (2017-01-06)
+
+### Bug fixes
+
+* [ios] Prevent discarding native exceptions invoked over JS bridge
+  [fac66b9](https://github.com/bugsnag/bugsnag-react-native/commit/fac66b9e1675982f60049de8103933c975c69738)
+
 ## 1.2.1 (2016-12-30)
 
 ### Bug fixes
@@ -133,4 +197,3 @@ Vendor iOS dependencies. Current version is 5.6.3.
 ## 1.0.0
 
 First public release
-
