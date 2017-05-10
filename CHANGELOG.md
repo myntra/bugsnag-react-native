@@ -1,6 +1,21 @@
 Changelog
 =========
 
+## 2.2.3 (2017-04-27)
+
+### Bug fixes
+
+* Fix regression where iOS headers are copied into an incorrect location
+  [#98](https://github.com/bugsnag/bugsnag-react-native/issues/98)
+
+
+## 2.2.2 (2017-04-26)
+
+### Bug fixes
+
+* Restore missing `android/src` directory to package
+  [#96](https://github.com/bugsnag/bugsnag-react-native/issues/96)
+
 ## 2.2.1 (2017-04-25)
 
 * Generates `lib/Bugsnag.js` to improve compatibility with tooling which does
