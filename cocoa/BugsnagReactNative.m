@@ -1,4 +1,5 @@
 #import "Bugsnag.h"
+#import "BSG_KSCrashC.h"
 #import "BugsnagReactNative.h"
 #import <React/RCTConvert.h>
 
@@ -141,7 +142,10 @@ RCT_EXPORT_METHOD(notify:(NSDictionary *)options) {
                               exceptionWithName:[RCTConvert NSString:options[@"errorClass"]]
                               reason:[RCTConvert NSString:options[@"errorMessage"]]
                               userInfo:nil];
-    [Bugsnag notify:exception block:^(BugsnagCrashReport *report) {
+    
+    [Bugsnag internalClientNotify:exception
+                         withData:options
+                            block:^(BugsnagCrashReport *report) {
         NSArray* stackframes = nil;
         if (options[@"stacktrace"]) {
             stackframes = BSGParseJavaScriptStacktrace([RCTConvert NSString:options[@"stacktrace"]],
@@ -152,8 +156,6 @@ RCT_EXPORT_METHOD(notify:(NSDictionary *)options) {
             report.context = [RCTConvert NSString:options[@"context"]];
         if (options[@"groupingHash"])
             report.groupingHash = [RCTConvert NSString:options[@"groupingHash"]];
-        if (options[@"severity"])
-            report.severity = BSGParseSeverity([RCTConvert NSString:options[@"severity"]]);
         if (options[@"metadata"]) {
             NSDictionary *metadata = BSGConvertTypedNSDictionary(options[@"metadata"]);
             NSMutableDictionary *targetMetadata = [report.metaData mutableCopy];
@@ -205,16 +207,25 @@ RCT_EXPORT_METHOD(startWithOptions:(NSDictionary *)options) {
     NSString *releaseStage = [self  parseReleaseStage:[RCTConvert NSString:options[@"releaseStage"]]];
     NSArray *notifyReleaseStages = [RCTConvert NSStringArray:options[@"notifyReleaseStages"]];
     NSString *notifyURLPath = [RCTConvert NSString:options[@"endpoint"]];
+    NSString *sessionURLPath = [RCTConvert NSString:options[@"sessionsEndpoint"]];
     NSString *appVersion = [RCTConvert NSString:options[@"appVersion"]];
+    NSString *codeBundleId = [RCTConvert NSString:options[@"codeBundleId"]];
     BugsnagConfiguration* config = [Bugsnag bugsnagStarted] ? [Bugsnag configuration] : [BugsnagConfiguration new];
     config.apiKey = apiKey;
     config.releaseStage = releaseStage;
     config.notifyReleaseStages = notifyReleaseStages;
+    config.autoNotify = [RCTConvert BOOL:options[@"autoNotify"]];
+    config.shouldAutoCaptureSessions = [RCTConvert BOOL:options[@"autoCaptureSessions"]];
     [config addBeforeSendBlock:^bool(NSDictionary *_Nonnull rawEventData,
                                      BugsnagCrashReport *_Nonnull report) {
         return !([report.errorClass hasPrefix:@"RCTFatalException"]
                  && [report.errorMessage hasPrefix:@"Unhandled JS Exception"]);
     }];
+    if (sessionURLPath.length > 0) {
+        NSURL *sessionURL = [NSURL URLWithString:sessionURLPath];
+        if (sessionURL)
+            config.sessionURL = sessionURL;
+    }
     if (notifyURLPath.length > 0) {
         NSURL *notifyURL = [NSURL URLWithString:notifyURLPath];
         if (notifyURL)
@@ -223,7 +234,14 @@ RCT_EXPORT_METHOD(startWithOptions:(NSDictionary *)options) {
     if (appVersion.length > 0) {
         config.appVersion = appVersion;
     }
-    if (![Bugsnag bugsnagStarted]) {
+    if (codeBundleId.length > 0) {
+        [config.metaData addAttribute:@"codeBundleId"
+                            withValue:codeBundleId
+                        toTabWithName:@"app"];
+    }
+    if ([Bugsnag bugsnagStarted] && !config.autoNotify) {
+        bsg_kscrash_setHandlingCrashTypes(BSG_KSCrashTypeUserReported);
+    } else if (![Bugsnag bugsnagStarted]) {
         [Bugsnag startBugsnagWithConfiguration:config];
     }
     [self setNotifierDetails:[RCTConvert NSString:options[@"version"]]];

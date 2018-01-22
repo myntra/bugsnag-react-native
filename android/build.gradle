@@ -7,9 +7,8 @@ android {
     defaultConfig {
         minSdkVersion versions.minSdk
         targetSdkVersion versions.targetSdk
-
-        versionCode 1
-        versionName "1.0"
+        versionCode 4
+        versionName "2.8.0"
     }
 
     buildTypes {
@@ -32,5 +31,5 @@ android {
 
 dependencies {
     implementation 'com.facebook.react:react-native:+'
-    implementation 'com.bugsnag:bugsnag-android:3.7.2'
+    implementation 'com.bugsnag:bugsnag-android:4.2.1'
 }

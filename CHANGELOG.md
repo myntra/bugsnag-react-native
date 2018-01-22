@@ -1,6 +1,157 @@
 Changelog
 =========
 
+## 2.8.0 (2018-01-09)
+
+### Enhancements
+
+* Add support for tracking app sessions and enabling overall crash rate metrics
+
+### Bug Fixes
+
+* Fix issue where breadcrumb functions are called before initialization
+  [bugsnag-android#211](https://github.com/bugsnag/bugsnag-android/pull/211)
+
+## 2.7.5 (2017-11-30)
+
+### Bug Fixes
+
+* (iOS - CocoaPods only) Fix ambiguous headers issue in 2.7.3+
+* (iOS) Fix intermittent dropped native crash reports due to parsing runtime
+  options incorrectly
+
+## 2.7.4 (2017-11-30)
+* (iOS) Fix encoding of control characters in crash reports. Ensures crash reports are written correctly and delivered when containing U+0000 - U+001F
+
+## 2.7.3 (2017-11-23)
+
+* (iOS) Use `BSG_KSCrashReportWriter` header rather than `KSCrashReportWriter` for custom JSON serialization
+* (Android) Enqueue activity lifecycle events when initialisation not complete to prevent NPE
+
+## 2.7.2 (2017-11-21)
+
+* (iOS) Remove misleading information (address, mach, signal) from non-fatal error reports
+
+## 2.7.1 (2017-11-20)
+
+* Improved validation of handled/unhandled state
+
+## 2.7.0 (2017-11-16)
+
+* Add typescript definitions
+
+## 2.6.1 (2017-11-14)
+
+* Fix duplicate dependencies key in `package.json`
+* Handle null in console breadcrumbs
+
+## 2.6.0 (2017-11-07)
+
+#### IMPORTANT UPGRADE NOTE:
+Please ensure that Google's maven repository is specified in your `android/build.gradle`:
+
+```
+allprojects {
+    repositories {
+        maven { url 'https://maven.google.com' }
+    }
+}
+```
+
+* (Android) Compile annotations dependency as api rather than implementation
+* (Android) [Support missing case in handled/unhandled tracker](https://github.com/bugsnag/bugsnag-android/pull/208)
+
+
+## 2.5.4 (2017-11-06)
+
+* Update Cocoa code to fix archive issue on older versions of XCode
+
+## 2.5.3 (2017-11-02)
+
+* Updates native libraries to include latest fixes
+
+## 2.5.2 (2017-11-02)
+
+* Support setting `autoNotify` to disable native crash reporting
+
+## 2.5.1 (2017-10-26)
+
+* Replace PropTypes from React with prop-types package
+* Adds example project which uses react native via cocoapods
+
+## 2.5.0 (2017-10-09)
+
+### Enhancements
+
+* Add configuration option to enable capturing console log messages as
+  breadcrumbs
+  [#159](https://github.com/bugsnag/bugsnag-react-native/pull/159)
+  [Ben Gourley](https://github.com/bengourley)
+
+### Bug fixes
+
+* [android] Reuse previously configured Bugsnag native client if available
+  [#156](https://github.com/bugsnag/bugsnag-react-native/pull/156)
+
+## 2.4.2 (2017-10-04)
+* Fix duplicate symbols in KSCrash when Sentry library included in project
+
+## 2.4.1 (2017-10-03)
+* Link Native Cocoa as a static library
+
+## 2.4.0 (2017-10-02)
+* Track whether errors are handled or unhandled
+* Reduce build warning count
+
+## 2.3.2 (2017-08-18)
+
+### Bug fixes
+
+* Fix regression introduced in 2.3.0 where nested JavaScript objects were being
+  serialized incorrectly before being sent to Bugsnag
+  [#132](https://github.com/bugsnag/bugsnag-react-native/issues/132)
+  [#133](https://github.com/bugsnag/bugsnag-react-native/issues/133)
+
+## 2.3.1 (2017-08-10)
+
+### Bug fixes
+
+* Fix codeBundleId being unset in unhandled exceptions when using CodePush 2+
+  [#127](https://github.com/bugsnag/bugsnag-react-native/issues/127)
+  [#128](https://github.com/bugsnag/bugsnag-react-native/issues/128)
+
+## 2.3.0 (2017-08-02)
+
+### Enhancements
+
+* Add compatibility for React Native 0.47
+  [Jamie Lynch](https://github.com/fractalwrench)
+  [#120](https://github.com/bugsnag/bugsnag-react-native/pull/120)
+
+* Make index.js ES2015-compatible
+  [Rubén Sospedra](https://github.com/sospedra)
+  [#104](https://github.com/bugsnag/bugsnag-react-native/pull/104)
+
+### Bug fixes
+
+* Call previous exception handler when `notify` is cancelled by a callback
+  [#106](https://github.com/bugsnag/bugsnag-react-native/issues/106)
+
+* Stringify NaN in breadcrumb metadata before sending over native bridge to
+  avoid fatal error
+  [#107](https://github.com/bugsnag/bugsnag-react-native/issues/107)
+
+## 2.2.4 (2017-07-14)
+
+### Bug fixes
+
+* Copy breadcrumb data to avoid mutation
+  [Jakob Kerkhove](https://github.com/dejakob)
+  [#101](https://github.com/bugsnag/bugsnag-react-native/pull/101)
+* Tweak podspec to work around missing public headers issue
+  [Jonathan Sibley](https://github.com/sibljon)
+  [#116](https://github.com/bugsnag/bugsnag-react-native/pull/116)
+
 ## 2.2.3 (2017-04-27)
 
 ### Bug fixes

@@ -3,6 +3,10 @@ import { NativeModules } from 'react-native';
 const NativeClient = NativeModules.BugsnagReactNative;
 
 const BREADCRUMB_MAX_LENGTH = 30;
+const CONSOLE_LOG_METHODS = [ 'log', 'debug', 'info', 'warn', 'error' ].filter(method =>
+  typeof console[method] === 'function'
+);
+
 
 /**
  * A Bugsnag monitoring and reporting client
@@ -26,6 +30,8 @@ export class Client {
       this.handleUncaughtErrors();
       if (this.config.handlePromiseRejections)
         this.handlePromiseRejections();
+      if (this.config.consoleBreadcrumbsEnabled)
+        this.enableConsoleBreadcrumbs();
     } else {
       throw new Error('Bugsnag: No native client found. Is BugsnagReactNative installed in your native code project?');
     }
@@ -41,11 +47,11 @@ export class Client {
 
       ErrorUtils.setGlobalHandler((error, isFatal) => {
         if (this.config.autoNotify && this.config.shouldNotify()) {
-          this.notify(error, report => {report.severity = 'error'}, !!NativeClient.notifyBlocking, () => {
+          this.notify(error, null, !!NativeClient.notifyBlocking, (queued) => {
             if (previousHandler) {
               previousHandler(error, isFatal);
             }
-          });
+          }, new HandledState('error', true, 'unhandledException'));
         } else if (previousHandler) {
           previousHandler(error, isFatal);
         }
@@ -58,7 +64,9 @@ export class Client {
           client = this;
     tracking.enable({
       allRejections: true,
-      onUnhandled: function(id, error) { client.notify(error); },
+      onUnhandled: function(id, error) {
+        client.notify(error, null, false, null, new HandledState('error', true, 'unhandledPromiseRejection'));
+      },
       onHandled: function() {}
     });
   }
@@ -73,20 +81,26 @@ export class Client {
    *                            request asynchronously
    * @param postSendCallback    Callback invoked after request is queued
    */
-  notify = async (error, beforeSendCallback, blocking, postSendCallback) => {
+  notify = async (error, beforeSendCallback, blocking, postSendCallback, _handledState) => {
     if (!(error instanceof Error)) {
       console.warn('Bugsnag could not notify: error must be of type Error');
+      if (postSendCallback)
+        postSendCallback(false);
       return;
     }
     if (!this.config.shouldNotify()) {
+      if (postSendCallback)
+        postSendCallback(false);
       return;
     }
 
-    const report = new Report(this.config.apiKey, error);
+    const report = new Report(this.config.apiKey, error, _handledState);
     report.addMetadata('app', 'codeBundleId', this.config.codeBundleId);
 
     for (callback of this.config.beforeSendCallbacks) {
       if (callback(report, error) === false) {
+        if (postSendCallback)
+          postSendCallback(false);
         return;
       }
     }
@@ -94,12 +108,13 @@ export class Client {
       beforeSendCallback(report);
     }
 
-    if (blocking) {
-      NativeClient.notifyBlocking(report.toJSON(), blocking, postSendCallback);
+    const payload = report.toJSON();
+    if (blocking && NativeClient.notifyBlocking) {
+      NativeClient.notifyBlocking(payload, blocking, postSendCallback);
     } else {
-      NativeClient.notify(report.toJSON());
+      NativeClient.notify(payload);
       if (postSendCallback)
-        postSendCallback();
+        postSendCallback(true);
     }
   }
 
@@ -112,6 +127,10 @@ export class Client {
    */
   clearUser = () => {
     NativeClient.clearUser();
+  }
+
+  startSession = () => {
+    NativeClient.startSession();
   }
 
   /**
@@ -139,15 +158,62 @@ export class Client {
     }
 
     let type = metadata['type'] || 'manual';
-    delete metadata['type'];
+    const breadcrumbMetaData = { ...metadata };
+    delete breadcrumbMetaData['type'];
 
     NativeClient.leaveBreadcrumb({
       name,
       type,
-      metadata: typedMap(metadata)
+      metadata: typedMap(breadcrumbMetaData)
     });
   }
+
+  /**
+   * Wraps all console log functions with a function that will leave a breadcrumb for
+   * each call, while continuing to call through to the original.
+   *
+   *   !!! Warning !!!
+   *   This will cause all log messages to originate from Bugsnag, rather than the
+   *   actual callsite of the log function in your source code.
+   */
+  enableConsoleBreadcrumbs = () => {
+    CONSOLE_LOG_METHODS.forEach(method => {
+      const originalFn = console[method];
+      console[method] = (...args) => {
+        try {
+          this.leaveBreadcrumb('Console', {
+            type: 'log',
+            severity: /^group/.test(method) ? 'log' : method,
+            message: args
+              .map(arg => {
+                let stringified
+                // do the best/simplest stringification of each argument
+                try { stringified = String(arg) } catch (e) {}
+                // unless it stringifies to [object Object], use the toString() value
+                if (stringified && stringified !== '[object Object]') return stringified
+                // otherwise attempt to JSON stringify (with indents/spaces)
+                try { stringified = JSON.stringify(arg, null, 2) } catch (e) {}
+                // any errors, fallback to [object Object]
+                return stringified
+              })
+              .join('\n')
+          });
+        } catch (error) {
+          console.warn(`Unable to serialize console.${method} arguments to Bugsnag breadcrumb.`, error);
+        }
+        originalFn.apply(console, args);
+      }
+      console[method]._restore = () => { console[method] = originalFn }
+    });
+  }
+
+  disableConsoleBreadCrumbs = () => {
+    CONSOLE_LOG_METHODS.forEach(method => {
+      if (typeof console[method]._restore === 'function') console[method]._restore()
+    })
+  }
 }
+
 
 /**
  * Configuration options for a Bugsnag client
@@ -164,8 +230,10 @@ export class Configuration {
     this.releaseStage = undefined;
     this.appVersion = undefined;
     this.codeBundleId = undefined;
+    this.autoCaptureSessions = false;
     this.autoNotify = true;
     this.handlePromiseRejections = !__DEV__; // prefer banner in dev mode
+    this.consoleBreadcrumbsEnabled = false;
   }
 
   /**
@@ -211,16 +279,27 @@ export class Configuration {
       releaseStage: this.releaseStage,
       notifyReleaseStages: this.notifyReleaseStages,
       endpoint: this.delivery.endpoint,
+      sessionsEndpoint: this.delivery.sessionsEndpoint,
       appVersion: this.appVersion,
-      version: this.version
+      autoNotify: this.autoNotify,
+      version: this.version,
+      autoCaptureSessions: this.autoCaptureSessions,
     };
   }
 }
 
 export class StandardDelivery {
+  constructor(endpoint, sessionsEndpoint) {
+    this.endpoint = endpoint;
+    this.sessionsEndpoint = sessionsEndpoint;
+  }
+}
 
-  constructor(endpoint) {
-    this.endpoint = endpoint || 'https://notify.bugsnag.com';
+class HandledState {
+  constructor(originalSeverity, unhandled, severityReason) {
+    this.originalSeverity = originalSeverity;
+    this.unhandled = unhandled;
+    this.severityReason = severityReason;
   }
 }
 
@@ -229,16 +308,22 @@ export class StandardDelivery {
  */
 export class Report {
 
-  constructor(apiKey, error) {
+  constructor(apiKey, error, _handledState) {
     this.apiKey = apiKey;
     this.errorClass = error.constructor.name;
     this.errorMessage = error.message;
     this.context = undefined;
     this.groupingHash = undefined;
     this.metadata = {};
-    this.severity = 'warning';
     this.stacktrace = error.stack;
     this.user = {};
+
+    if (!_handledState || !(_handledState instanceof HandledState)) {
+      _handledState = new HandledState('warning', false, 'handledException');
+    }
+
+    this.severity = _handledState.originalSeverity;
+    this._handledState = _handledState;
   }
 
   /**
@@ -253,6 +338,21 @@ export class Report {
   }
 
   toJSON = () => {
+    if (!this._handledState || !(this._handledState instanceof HandledState)) {
+      this._handledState = new HandledState('warning', false, 'handledException');
+    }
+    // severityReason must be a string, and severity must match the original
+    // state, otherwise we assume that the user has modified _handledState
+    // in a callback
+    const defaultSeverity = this._handledState.originalSeverity === this.severity;
+    const isValidReason = (typeof this._handledState.severityReason === 'string');
+    const severityType = defaultSeverity && isValidReason ?
+     this._handledState.severityReason : 'userCallbackSetSeverity';
+
+    // if unhandled not set, user has modified the report in a callback
+    // or via notify, so default to false
+    const isUnhandled = (typeof this._handledState.unhandled === 'boolean') ? this._handledState.unhandled : false;
+
     return {
       apiKey: this.apiKey,
       context: this.context,
@@ -262,7 +362,10 @@ export class Report {
       metadata: typedMap(this.metadata),
       severity: this.severity,
       stacktrace: this.stacktrace,
-      user: this.user
+      user: this.user,
+      defaultSeverity: defaultSeverity,
+      unhandled: isUnhandled,
+      severityReason: severityType
     }
   }
 }
@@ -280,8 +383,8 @@ const typedMap = function(map) {
 
     const value = map[key];
 
-    // Checks for both `null` and `undefined`.
-    if (value == undefined) {
+    // Checks for `null`, NaN, and `undefined`.
+    if (value == undefined || (typeof value === 'number' && isNaN(value))) {
       output[key] = {type: 'string', value: String(value)}
     } else if (typeof value === 'object') {
       output[key] = {type: 'map', value: typedMap(value)};

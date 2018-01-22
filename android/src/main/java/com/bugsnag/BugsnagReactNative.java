@@ -3,6 +3,7 @@ package com.bugsnag;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
 import java.util.logging.Logger;
@@ -65,13 +66,12 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void startWithOptions(ReadableMap options) {
-      libraryVersion = options.getString("version");
-      Client client = null;
+      String apiKey = null;
       if (options.hasKey("apiKey")) {
-          client = Bugsnag.init(this.reactContext, options.getString("apiKey"));
-      } else {
-          client = Bugsnag.init(this.reactContext);
+          apiKey = options.getString("apiKey");
       }
+      Client client = getClient(apiKey);
+      libraryVersion = options.getString("version");
       bugsnagAndroidVersion = client.getClass().getPackage().getSpecificationVersion();
       configureRuntimeOptions(client, options);
 
@@ -114,15 +114,21 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
                                                         errorMessage,
                                                         rawStacktrace);
 
-
       DiagnosticsCallback handler = new DiagnosticsCallback(libraryVersion,
                                                             bugsnagAndroidVersion,
                                                             payload);
-      if (blocking) {
-        Bugsnag.getClient().notifyBlocking(exc, handler);
-      } else {
-        Bugsnag.notify(exc, handler);
-      }
+
+      Map<String, Object> map = new HashMap<>();
+      String severity = payload.getString("severity");
+      String severityReason = payload.getString("severityReason");
+      map.put("severity", severity);
+      map.put("severityReason", severityReason);
+
+      logger.info("Notifying native client, severity = " + severity +
+              ", severityReason = " + severityReason);
+      Bugsnag.internalClientNotify(exc, map, blocking, handler);
+      logger.info("Notified native client");
+
       if (callback != null)
         callback.invoke();
   }
@@ -168,6 +174,20 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
     return output;
   }
 
+  private Client getClient(String apiKey) {
+      Client client = null;
+      try {
+          client = Bugsnag.getClient();
+      } catch (IllegalStateException exception) {
+          if (apiKey != null) {
+              client = Bugsnag.init(this.reactContext, apiKey);
+          } else {
+              client = Bugsnag.init(this.reactContext);
+          }
+      }
+      return client;
+  }
+
   private BreadcrumbType parseBreadcrumbType(String value) {
     for (BreadcrumbType type : BreadcrumbType.values()) {
         if (type.toString().equals(value)) {
@@ -179,6 +199,7 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
 
   private void configureRuntimeOptions(Client client, ReadableMap options) {
       client.setIgnoreClasses(new String[] {"com.facebook.react.common.JavascriptException"});
+      Configuration config = client.getConfig();
       if (options.hasKey("appVersion")) {
           String version = options.getString("appVersion");
           if (version != null && version.length() > 0)
@@ -191,10 +212,35 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
               client.setEndpoint(endpoint);
       }
 
+      if (options.hasKey("sessionsEndpoint")) {
+          String endpoint = options.getString("sessionsEndpoint");
+          if (endpoint != null && endpoint.length() > 0)
+              config.setSessionEndpoint(endpoint);
+      }
+
       if (options.hasKey("releaseStage")) {
           String releaseStage = options.getString("releaseStage");
           if (releaseStage != null && releaseStage.length() > 0)
               client.setReleaseStage(releaseStage);
+      }
+
+      if (options.hasKey("autoNotify")) {
+          if (options.getBoolean("autoNotify")) {
+              client.enableExceptionHandler();
+          } else {
+              client.disableExceptionHandler();
+          }
+      }
+
+      if (options.hasKey("autoCaptureSessions")) {
+          boolean autoCapture = options.getBoolean("autoCaptureSessions");
+          config.setAutoCaptureSessions(autoCapture);
+      }
+
+      if (options.hasKey("codeBundleId")) {
+          String codeBundleId = options.getString("codeBundleId");
+          if (codeBundleId != null && codeBundleId.length() > 0)
+              client.addToTab("app", "codeBundleId", codeBundleId);
       }
 
       if (options.hasKey("notifyReleaseStages")) {
@@ -212,7 +258,6 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
 
 class BugsnagPackage implements ReactPackage {
 
-  @Override
   public List<Class<? extends JavaScriptModule>> createJSModules() {
     return Collections.emptyList();
   }
@@ -311,7 +356,6 @@ class DiagnosticsCallback implements Callback {
                                                 libraryVersion,
                                                 bugsnagAndroidVersion));
 
-        report.getError().setSeverity(severity);
         if (groupingHash != null && groupingHash.length() > 0)
             report.getError().setGroupingHash(groupingHash);
         if (context != null && context.length() > 0)

@@ -1,6 +1,12 @@
 node_modules
 example*/ios/Pods
-
 *.bundle
 local.properties
 .idea
+*.DS_STORE
+xcuserdata
+coverage
+/android/build
+*.iml
+Pods/
+test/app.js
