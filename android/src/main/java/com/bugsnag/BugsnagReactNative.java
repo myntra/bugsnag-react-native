@@ -25,6 +25,7 @@ import com.facebook.react.ReactPackage;
 import com.facebook.react.uimanager.ViewManager;
 
 import android.content.Context;
+import android.app.Activity;
 
 import com.bugsnag.android.*;
 
