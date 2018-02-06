@@ -10,18 +10,6 @@ android {
         versionCode 4
         versionName '2.9.1'
     }
-
-    buildTypes {
-        debug {}
-        qa {}
-        fox {}
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-        }
-        sourceSets {}
-        splits {}
-    }
 }
 
 dependencies {
