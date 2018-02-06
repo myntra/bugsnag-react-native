@@ -262,7 +262,11 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
       if (options.hasKey("autoCaptureSessions")) {
           boolean autoCapture = options.getBoolean("autoCaptureSessions");
           config.setAutoCaptureSessions(autoCapture);
-          client.startFirstSession();
+          Activity activity = getCurrentActivity();
+
+          if (activity != null) {
+              client.startFirstSession(activity);
+          }
       }
   }
 }
