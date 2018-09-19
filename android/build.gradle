@@ -1,18 +1,28 @@
 apply plugin: 'com.android.library'
 
+def safeExtGet(prop, fallback) {
+    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+gradle.projectsEvaluated {
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << "-Xlint:all" << "-Werror"
+    }
+}
+
 android {
-    buildToolsVersion '23.0.1'
-    compileSdkVersion 23
+    buildToolsVersion safeExtGet('buildToolsVersion', '26.0.3')
+    compileSdkVersion safeExtGet('compileSdkVersion', 26)
 
     defaultConfig {
-        minSdkVersion 16
-        targetSdkVersion 23
-        versionCode 1
-        versionName '2.2.3'
+        minSdkVersion safeExtGet('minSdkVersion', 16)
+        targetSdkVersion safeExtGet('targetSdkVersion', 26)
+        versionCode 4
+        versionName '2.10.3'
     }
 }
 
 dependencies {
-    compile 'com.bugsnag:bugsnag-android:3.7.2'
+    compile 'com.bugsnag:bugsnag-android:4.5.0'
     compile 'com.facebook.react:react-native:+'
 }

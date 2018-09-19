@@ -1,6 +1,354 @@
 Changelog
 =========
 
+## 2.10.3 (2018-09-14)
+
+### Bug Fixes
+
+* (iOS) Upgrade bugsnag-cocoa dependency to v5.16.4:
+  * Deregister notification observers and listeners before application
+    termination [#301](https://github.com/bugsnag/bugsnag-cocoa/pull/301)
+
+  * Ensure NSException is captured when handler is overridden
+    [#313](https://github.com/bugsnag/bugsnag-cocoa/pull/313)
+
+  * Fix mach handler declaration and imports. This resolves an issue where
+    signal codes were less specific than is possible.
+    [#314](https://github.com/bugsnag/bugsnag-cocoa/pull/314)
+
+  * Only call previously installed C++ termination handler if non-null. Fixes an
+    unexpected termination if you override the handler with null before
+    initializing Bugsnag and then throw a C++ exception and would like the app
+    to continue after Bugsnag completes exception reporting.
+
+
+## 2.10.2 (2018-07-27)
+
+This release reduces the size of the npm package compared to v2.10.1, which was ~20Mb due to the inadvertant inclusion of build files.
+
+## 2.10.1 (2018-07-20)
+
+This release simplies the installation and quick setup process to do all
+configuration in JavaScript, provided that React Native is the primary way to
+interact with your app (rather than having React Native components as a part of
+a larger native app). [See the integration guide updated configuration
+instructions](https://docs.bugsnag.com/platforms/react-native/#basic-configuration).
+
+For applications using React Native to serve a few components (but not the whole
+app), there is a new [Enhanced native integration
+guide](https://docs.bugsnag.com/platforms/react-native/enhanced-native-integration/)
+with additional configuration steps to ensure every crash is captured and
+reported.
+
+### Bug fixes
+
+* Fix possible mismatch between session release stage and error report release
+  stage, which could result in inconsistent crash rates on the Releases
+  dashboard as a session was assigned to an incorrect release stage.
+  [#260](https://github.com/bugsnag/bugsnag-react-native/issues/260)
+
+* (android) Address javac compiler warnings and intellij inspections
+  [#250](https://github.com/bugsnag/bugsnag-react-native/issues/250)
+
+* (cocoa) Upgrade bugsnag-cocoa to v5.16.2:
+  * Fix a regression in session tracking which caused the first session HTTP
+    request to be delivered on the calling thread when automatic session tracking
+    is enabled
+    [#295](https://github.com/bugsnag/bugsnag-cocoa/pull/295)
+
+## 2.10.0 (2018-07-03)
+
+This release alters the behaviour of the notifier to track sessions automatically.
+A session will be automatically captured on each app launch and sent to [https://sessions.bugsnag.com](https://sessions.bugsnag.com).
+
+If you use Bugsnag On-Premise, it is recommended that you set your notify and session endpoints
+via `config.setEndpoints(String notify, String sessions)` on Android, and `config.setEndpoints(notify:sessions:)` on iOS. You should also initialise the Android/iOS components by passing a `config` parameter:
+
+```java
+Configuration config = new Configuration("your-api-key-here");
+config.setEndpoints("https://notify.example.com", "https://sessions.example.com");
+BugsnagReactNative.start(this, config);
+```
+
+```objc
+BugsnagConfiguration *config = [BugsnagConfiguration new];
+[config setEndpointsForNotify:@"http://notify.example.com"
+                     sessions:@"http://sessions.example.com"];
+[BugsnagReactNative startWithConfiguration:config];
+```
+
+* Upgrade bugsnag-android to v4.5.0:
+  * Enable automatic session tracking by default [#314](https://github.com/bugsnag/bugsnag-android/pull/314)
+  * Trim long stacktraces to max limit of 200 [#324](https://github.com/bugsnag/bugsnag-android/pull/324)
+
+* Upgrade bugsnag-cocoa to v5.16.0:
+  * Enable automatic session tracking by default [#286](https://github.com/bugsnag/bugsnag-cocoa/pull/286)
+  * Handle potential nil content value in RegisterErrorData class [#289](https://github.com/bugsnag/bugsnag-cocoa/pull/289)
+
+### Bug fixes
+
+* (android) Reduce gratutious android logging
+  [#245](https://github.com/bugsnag/bugsnag-react-native/issues/245)
+
+## 2.9.5 (2018-05-31)
+
+### Bug fixes
+
+* (android) Upgrade bugsnag-android dependency to v4.4.1:
+  * Refine automatically collected breadcrumbs to a commonly useful set by default
+    [bugsnag-android#321](https://github.com/bugsnag/bugsnag-android/pull/321)
+  * Ensure that unhandled error reports are always sent immediately on launch for Android P and in situations with no connectivity.
+    [bugsnag-android#319](https://github.com/bugsnag/bugsnag-android/pull/319)
+
+* (iOS) Upgrade bugsnag-cocoa dependency to v5.15.6:
+  * Ensure device data is attached to minimal reports
+    [bugsnag-cocoa#279](https://github.com/bugsnag/bugsnag-cocoa/pull/279)
+  * Enforce requiring API key to initialise notifier
+    [bugsnag-cocoa#280](https://github.com/bugsnag/bugsnag-cocoa/pull/280)
+
+## 2.9.4 (2018-05-02)
+
+* Enable nativeSerializer to handle Error objects by extracting the stack and message from a given Error class before serialising it. [#239](https://github.com/bugsnag/bugsnag-react-native/issues/239) [#240](https://github.com/bugsnag/bugsnag-react-native/pull/240) [daisy1754](https://github.com/daisy1754) [Cawllec](https://github.com/Cawllec)
+
+* Upgrade bugsnag-android to v4.3.4:
+  - *Bug Fixes:*
+    - Avoid adding extra comma separator in JSON if File input is empty or null [#284](https://github.com/bugsnag/bugsnag-android/pull/284)
+    - Thread safety fixes to JSON file serialisation [#295](https://github.com/bugsnag/bugsnag-android/pull/295)
+    - Prevent potential automatic activity lifecycle breadcrumb crash [#300](https://github.com/bugsnag/bugsnag-android/pull/300)
+    - Fix serialisation issue with leading to incorrect dashboard display of breadcrumbs [#306](https://github.com/bugsnag/bugsnag-android/pull/306)
+    - Prevent duplicate reports being delivered in low connectivity situations [#270](https://github.com/bugsnag/bugsnag-android/pull/270)
+    - Fix possible NPE when reading default metadata filters [#263](https://github.com/bugsnag/bugsnag-android/pull/263)
+    - Prevent ConcurrentModificationException in Before notify/breadcrumb callbacks [#266](https://github.com/bugsnag/bugsnag-android/pull/266)
+    - Ensure that exception message is never null [#256](https://github.com/bugsnag/bugsnag-android/pull/256)
+    - Add payload version to JSON body [#244](https://github.com/bugsnag/bugsnag-android/pull/244)
+    - Update context tracking to use lifecycle callbacks rather than ActivityManager [#238](https://github.com/bugsnag/bugsnag-android/pull/238)
+  - *Enhancements:*
+    - Detect whether running on emulator [#245](https://github.com/bugsnag/bugsnag-android/pull/245)
+    - Add a callback for filtering breadcrumbs [#237](https://github.com/bugsnag/bugsnag-android/pull/237)
+* Upgrade bugsnag-cocoa to v5.15.5:
+  - *Bug Fixes:*
+    - Changes report generation so that when a minimal or incomplete crash is recorded, essential app/device information is included in the report on the next application launch. [#239](https://github.com/bugsnag/bugsnag-cocoa/pull/239)
+  [#250](https://github.com/bugsnag/bugsnag-cocoa/pull/250)
+    - Ensure timezone is serialised in report payload.
+  [#248](https://github.com/bugsnag/bugsnag-cocoa/pull/248)
+    - Ensure error class and message are persisted when thread tracing is disabled [#245](https://github.com/bugsnag/bugsnag-cocoa/pull/245)
+    - Re-addapp name to the app tab of reports [#244](https://github.com/bugsnag/bugsnag-cocoa/pull/244)
+    - Add payload version to report body to preserve backwards compatibility with older versions of the error reporting API [#241](https://github.com/bugsnag/bugsnag-cocoa/pull/241)
+  - *Enhancements:*
+    -This release adds additional device metadata for filtering by whether an error occurred in a simulator ([#242](https://github.com/bugsnag/bugsnag-cocoa/pull/242)) and by processor word size ([#228](https://github.com/bugsnag/bugsnag-cocoa/pull/228)).
+
+## 2.9.3 (2018-03-16)
+
+### Bug Fixes
+
+* Add NativeSerializer to packaging step [#227](https://github.com/bugsnag/bugsnag-react-native/pull/227)
+[Ben Gourley](https://github.com/bengourley)
+
+## 2.9.2 (2018-03-15)
+
+* Add standardJS linter [#223](https://github.com/bugsnag/bugsnag-react-native/pull/223) [Ben Gourley](https://github.com/bengourley)
+* Rework construction of breadcrumbMetaData [224](https://github.com/bugsnag/bugsnag-react-native/pull/224) [bramus](https://github.com/bramus)
+* Refactor(typedMap): Extract and rename typedMap function into NativeSerializer module [#225](https://github.com/bugsnag/bugsnag-react-native/pull/225) [Ben Gourley](https://github.com/bengourley)
+* Loosen react native dependency version for Android [#220](https://github.com/bugsnag/bugsnag-react-native/pull/220) [Jamie Lynch](https://github.com/fractalwrench)
+
+
+## 2.9.1 (2018-01-29)
+
+- Adds missing bundle ID in iOS example project
+- Fixes missing parameter in Android initialisation
+
+## 2.9.0 (2018-01-26)
+
+This release includes features and fixes to the native interface.
+
+### Enhancements
+
+* Allow disabling of breadcrumbs via the `Configuration` object via the JS
+  interface
+* Upgrade bugsnag-android to v4.3.1:
+  - *Enhancements:*
+    - Move capture of thread stacktraces to start of notify process
+    - Add configuration option to disable automatic breadcrumb capture
+    - Parse manifest meta-data for Session Auto-Capture boolean flag
+  - *Bug Fixes:*
+    - Fix possible ANR when enabling session tracking via
+      `Bugsnag.setAutoCaptureSessions()` and connecting to latent networks.
+      [#231](https://github.com/bugsnag/bugsnag-android/pull/231)
+    - Fix invalid payloads being sent when processing multiple Bugsnag events
+      in the same millisecond
+      [#235](https://github.com/bugsnag/bugsnag-android/pull/235)
+    - Re-add API key to error report HTTP request body to preserve backwards
+      compatibility with older versions of the error reporting API
+      [#228](https://github.com/bugsnag/bugsnag-android/pull/228)-
+* Upgrade bugsnag-cocoa to v5.15.3:
+  - *Bug Fixes:*
+    - Remove chatty logging from session tracking
+      [#231](https://github.com/bugsnag/bugsnag-cocoa/pull/231)
+      [Jamie Lynch](https://github.com/fractalwrench)
+    - Re-add API key to payload body to preserve backwards compatibility with older
+      versions of the error reporting API
+      [#232](https://github.com/bugsnag/bugsnag-cocoa/pull/232)
+      [Jamie Lynch](https://github.com/fractalwrench)
+    - Fix crash in iPhone X Simulator when reporting user exceptions
+      [#234](https://github.com/bugsnag/bugsnag-cocoa/pull/234)
+      [Paul Zabelin](https://github.com/paulz)
+    - Improve capture of Swift assertion error messages on arm64 devices, inserting
+      the assertion type into the report's `errorClass`
+      [#235](https://github.com/bugsnag/bugsnag-cocoa/pull/235)
+    - Fix default user/device ID generation on iOS devices
+    - Fix mach exception detection
+
+## 2.8.0 (2018-01-09)
+
+### Enhancements
+
+* Add support for tracking app sessions and enabling overall crash rate metrics
+
+### Bug Fixes
+
+* Fix issue where breadcrumb functions are called before initialization
+  [bugsnag-android#211](https://github.com/bugsnag/bugsnag-android/pull/211)
+
+## 2.7.5 (2017-11-30)
+
+### Bug Fixes
+
+* (iOS - CocoaPods only) Fix ambiguous headers issue in 2.7.3+
+* (iOS) Fix intermittent dropped native crash reports due to parsing runtime
+  options incorrectly
+
+## 2.7.4 (2017-11-30)
+* (iOS) Fix encoding of control characters in crash reports. Ensures crash reports are written correctly and delivered when containing U+0000 - U+001F
+
+## 2.7.3 (2017-11-23)
+
+* (iOS) Use `BSG_KSCrashReportWriter` header rather than `KSCrashReportWriter` for custom JSON serialization
+* (Android) Enqueue activity lifecycle events when initialisation not complete to prevent NPE
+
+## 2.7.2 (2017-11-21)
+
+* (iOS) Remove misleading information (address, mach, signal) from non-fatal error reports
+
+## 2.7.1 (2017-11-20)
+
+* Improved validation of handled/unhandled state
+
+## 2.7.0 (2017-11-16)
+
+* Add typescript definitions
+
+## 2.6.1 (2017-11-14)
+
+* Fix duplicate dependencies key in `package.json`
+* Handle null in console breadcrumbs
+
+## 2.6.0 (2017-11-07)
+
+#### IMPORTANT UPGRADE NOTE:
+Please ensure that Google's maven repository is specified in your `android/build.gradle`:
+
+```
+allprojects {
+    repositories {
+        maven { url 'https://maven.google.com' }
+    }
+}
+```
+
+* (Android) Compile annotations dependency as api rather than implementation
+* (Android) [Support missing case in handled/unhandled tracker](https://github.com/bugsnag/bugsnag-android/pull/208)
+
+
+## 2.5.4 (2017-11-06)
+
+* Update Cocoa code to fix archive issue on older versions of XCode
+
+## 2.5.3 (2017-11-02)
+
+* Updates native libraries to include latest fixes
+
+## 2.5.2 (2017-11-02)
+
+* Support setting `autoNotify` to disable native crash reporting
+
+## 2.5.1 (2017-10-26)
+
+* Replace PropTypes from React with prop-types package
+* Adds example project which uses react native via cocoapods
+
+## 2.5.0 (2017-10-09)
+
+### Enhancements
+
+* Add configuration option to enable capturing console log messages as
+  breadcrumbs
+  [#159](https://github.com/bugsnag/bugsnag-react-native/pull/159)
+  [Ben Gourley](https://github.com/bengourley)
+
+### Bug fixes
+
+* [android] Reuse previously configured Bugsnag native client if available
+  [#156](https://github.com/bugsnag/bugsnag-react-native/pull/156)
+
+## 2.4.2 (2017-10-04)
+* Fix duplicate symbols in KSCrash when Sentry library included in project
+
+## 2.4.1 (2017-10-03)
+* Link Native Cocoa as a static library
+
+## 2.4.0 (2017-10-02)
+* Track whether errors are handled or unhandled
+* Reduce build warning count
+
+## 2.3.2 (2017-08-18)
+
+### Bug fixes
+
+* Fix regression introduced in 2.3.0 where nested JavaScript objects were being
+  serialized incorrectly before being sent to Bugsnag
+  [#132](https://github.com/bugsnag/bugsnag-react-native/issues/132)
+  [#133](https://github.com/bugsnag/bugsnag-react-native/issues/133)
+
+## 2.3.1 (2017-08-10)
+
+### Bug fixes
+
+* Fix codeBundleId being unset in unhandled exceptions when using CodePush 2+
+  [#127](https://github.com/bugsnag/bugsnag-react-native/issues/127)
+  [#128](https://github.com/bugsnag/bugsnag-react-native/issues/128)
+
+## 2.3.0 (2017-08-02)
+
+### Enhancements
+
+* Add compatibility for React Native 0.47
+  [Jamie Lynch](https://github.com/fractalwrench)
+  [#120](https://github.com/bugsnag/bugsnag-react-native/pull/120)
+
+* Make index.js ES2015-compatible
+  [Rubén Sospedra](https://github.com/sospedra)
+  [#104](https://github.com/bugsnag/bugsnag-react-native/pull/104)
+
+### Bug fixes
+
+* Call previous exception handler when `notify` is cancelled by a callback
+  [#106](https://github.com/bugsnag/bugsnag-react-native/issues/106)
+
+* Stringify NaN in breadcrumb metadata before sending over native bridge to
+  avoid fatal error
+  [#107](https://github.com/bugsnag/bugsnag-react-native/issues/107)
+
+## 2.2.4 (2017-07-14)
+
+### Bug fixes
+
+* Copy breadcrumb data to avoid mutation
+  [Jakob Kerkhove](https://github.com/dejakob)
+  [#101](https://github.com/bugsnag/bugsnag-react-native/pull/101)
+* Tweak podspec to work around missing public headers issue
+  [Jonathan Sibley](https://github.com/sibljon)
+  [#116](https://github.com/bugsnag/bugsnag-react-native/pull/116)
+
 ## 2.2.3 (2017-04-27)
 
 ### Bug fixes

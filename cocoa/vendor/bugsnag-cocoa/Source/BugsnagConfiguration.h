@@ -24,13 +24,15 @@
 // THE SOFTWARE.
 //
 
-#import "BSGKSCrashReportWriter.h"
+#import <Foundation/Foundation.h>
+
+#import "BSG_KSCrashReportWriter.h"
 #import "BugsnagBreadcrumb.h"
 #import "BugsnagCrashReport.h"
 #import "BugsnagMetaData.h"
-#import <Foundation/Foundation.h>
 
 @class BugsnagBreadcrumbs;
+@class BugsnagUser;
 
 /**
  *  A configuration block for modifying an error report
@@ -40,7 +42,10 @@
 typedef void (^BugsnagNotifyBlock)(BugsnagCrashReport *_Nonnull report);
 
 /**
- *  A handler for modifying data before sending it to Bugsnag
+ *  A handler for modifying data before sending it to Bugsnag.
+ *
+ * beforeSendBlocks will be invoked on a dedicated
+ * background queue, which will be different from the queue where the block was originally added.
  *
  *  @param rawEventData The raw event data written at crash time. This
  *                      includes data added in onCrashHandler.
@@ -48,9 +53,8 @@ typedef void (^BugsnagNotifyBlock)(BugsnagCrashReport *_Nonnull report);
  *
  *  @return YES if the report should be sent
  */
-typedef bool (^BugsnagBeforeSendBlock)(
-    NSDictionary *_Nonnull rawEventData,
-    BugsnagCrashReport *_Nonnull reports);
+typedef bool (^BugsnagBeforeSendBlock)(NSDictionary *_Nonnull rawEventData,
+                                       BugsnagCrashReport *_Nonnull reports);
 
 /**
  *  A handler for modifying data before sending it to Bugsnag
@@ -68,68 +72,113 @@ typedef NSDictionary *_Nullable (^BugsnagBeforeNotifyHook)(
 /**
  *  The API key of a Bugsnag project
  */
-@property(nonatomic, readwrite, retain, nullable) NSString *apiKey;
-/**
- *  The URL used to notify Bugsnag
- */
-@property(nonatomic, readwrite, retain, nullable) NSURL *notifyURL;
+@property(readwrite, retain, nullable) NSString *apiKey;
 /**
  *  The release stage of the application, such as production, development, beta
  *  et cetera
  */
-@property(nonatomic, readwrite, retain, nullable) NSString *releaseStage;
+@property(readwrite, retain, nullable) NSString *releaseStage;
 /**
  *  Release stages which are allowed to notify Bugsnag
  */
-@property(nonatomic, readwrite, retain, nullable) NSArray *notifyReleaseStages;
+@property(readwrite, retain, nullable) NSArray *notifyReleaseStages;
 /**
  *  A general summary of what was occuring in the application
  */
-@property(nonatomic, readwrite, retain, nullable) NSString *context;
+@property(readwrite, retain, nullable) NSString *context;
 /**
  *  The version of the application
  */
-@property(nonatomic, readwrite, retain, nullable) NSString *appVersion;
+@property(readwrite, retain, nullable) NSString *appVersion;
 
 /**
  *  The URL session used to send requests to Bugsnag.
  */
-@property(nonatomic, readwrite, strong, nonnull) NSURLSession *session;
+@property(readwrite, strong, nonnull) NSURLSession *session;
 
 /**
- *  Additional information about the state of the app or environment at the 
+ * The current user
+ */
+@property(retain, nullable) BugsnagUser *currentUser;
+
+/**
+ *  Additional information about the state of the app or environment at the
  *  time the report was generated
  */
-@property(nonatomic, readwrite, retain, nullable) BugsnagMetaData *metaData;
+@property(readwrite, retain, nullable) BugsnagMetaData *metaData;
 /**
  *  Meta-information about the state of Bugsnag
  */
-@property(nonatomic, readwrite, retain, nullable) BugsnagMetaData *config;
+@property(readwrite, retain, nullable) BugsnagMetaData *config;
 /**
  *  Rolling snapshots of user actions leading up to a crash report
  */
-@property(nonatomic, readonly, strong, nullable)
-    BugsnagBreadcrumbs *breadcrumbs;
+@property(readonly, strong, nullable)
+BugsnagBreadcrumbs *breadcrumbs;
 
 /**
  *  Whether to allow collection of automatic breadcrumbs for notable events
  */
-@property(nonatomic, readwrite) BOOL automaticallyCollectBreadcrumbs;
+@property(readwrite) BOOL automaticallyCollectBreadcrumbs;
 
 /**
  *  Hooks for modifying crash reports before it is sent to Bugsnag
  */
-@property(nonatomic, readonly, strong, nullable)
-    NSArray <BugsnagBeforeSendBlock>* beforeSendBlocks;
+@property(readonly, strong, nullable)
+    NSArray<BugsnagBeforeSendBlock> *beforeSendBlocks;
 /**
  *  Optional handler invoked when a crash or fatal signal occurs
  */
-@property(nonatomic) void (*_Nullable onCrashHandler)
-    (const BSGKSCrashReportWriter *_Nonnull writer);
+@property void (*_Nullable onCrashHandler)
+    (const BSG_KSCrashReportWriter *_Nonnull writer);
+
 /**
  *  YES if uncaught exceptions should be reported automatically
  */
-@property(nonatomic) BOOL autoNotify;
+@property BOOL autoNotify;
+
+/**
+ * Determines whether app sessions should be tracked automatically. By default this value is true.
+ * If this value is updated after +[Bugsnag start] is called, only subsequent automatic sessions
+ * will be captured.
+ */
+@property BOOL shouldAutoCaptureSessions;
+
+/**
+ * Retrieves the endpoint used to notify Bugsnag of errors
+ *
+ * NOTE: If you want to set this value, you should do so via setEndpointsForNotify:sessions: instead.
+ *
+ * @see setEndpointsForNotify:sessions:
+ */
+@property(readonly, retain, nullable) NSURL *notifyURL;
+
+/**
+ * Retrieves the endpoint used to send tracked sessions to Bugsnag
+ *
+ * NOTE: If you want to set this value, you should do so via setEndpointsForNotify:sessions: instead.
+ *
+ * @see setEndpointsForNotify:sessions:
+ */
+@property(readonly, retain, nullable) NSURL *sessionURL;
+
+/**
+ * Set the endpoints to send data to. By default we'll send error reports to
+ * https://notify.bugsnag.com, and sessions to https://sessions.bugsnag.com, but you can
+ * override this if you are using Bugsnag Enterprise to point to your own Bugsnag endpoint.
+ *
+ * Please note that it is recommended that you set both endpoints. If the notify endpoint is
+ * missing, an assertion will be thrown. If the session endpoint is missing, a warning will be
+ * logged and sessions will not be sent automatically.
+ *
+ * @param notify the notify endpoint
+ * @param sessions the sessions endpoint
+ *
+ * @throws an assertion if the notify endpoint is not a valid URL
+ */
+
+- (void)setEndpointsForNotify:(NSString *_Nonnull)notify
+                     sessions:(NSString *_Nonnull)sessions NS_SWIFT_NAME(setEndpoints(notify:sessions:));
 
 /**
  *  Set user metadata
@@ -150,7 +199,6 @@ typedef NSDictionary *_Nullable (^BugsnagBeforeNotifyHook)(
  */
 - (void)addBeforeSendBlock:(BugsnagBeforeSendBlock _Nonnull)block;
 
-
 /**
  * Clear all callbacks
  */
@@ -168,6 +216,15 @@ typedef NSDictionary *_Nullable (^BugsnagBeforeNotifyHook)(
 /**
  *  Hooks for processing raw report data before it is sent to Bugsnag
  */
-@property(nonatomic, readonly, strong, nullable) NSArray *beforeNotifyHooks
-    __deprecated_msg("Use beforeNotify instead.");
+@property(readonly, strong, nullable)
+    NSArray *beforeNotifyHooks __deprecated_msg("Use beforeNotify instead.");
+
+- (NSDictionary *_Nonnull)errorApiHeaders;
+- (NSDictionary *_Nonnull)sessionApiHeaders;
+
+@property(retain, nullable) NSString *codeBundleId;
+@property(retain, nullable) NSString *notifierType;
+
+- (BOOL)hasValidApiKey;
+
 @end
