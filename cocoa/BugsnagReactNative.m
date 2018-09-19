@@ -131,12 +131,21 @@ NSArray *BSGParseJavaScriptStacktrace(NSString *stacktrace, NSNumberFormatter *f
     if (config.apiKey.length == 0)
         config.apiKey = [[NSBundle mainBundle] objectForInfoDictionaryKey:BSGInfoPlistKey];
 
+    // The first session starts during JS initialization
+    // Applications which have specific components in RN instead of the primary
+    // way to interact with the application should instead leverage startSession
+    // manually.
+    config.shouldAutoCaptureSessions = NO;
     [Bugsnag startBugsnagWithConfiguration:config];
 }
 
 RCT_EXPORT_MODULE()
 
 RCT_EXPORT_METHOD(notify:(NSDictionary *)options) {
+    if (![Bugsnag bugsnagStarted]) {
+        return;
+    }
+
     NSString *const EXCEPTION_TYPE = @"browserjs";
     NSException *exception = [NSException
                               exceptionWithName:[RCTConvert NSString:options[@"errorClass"]]
@@ -181,6 +190,9 @@ RCT_EXPORT_METHOD(notify:(NSDictionary *)options) {
 }
 
 RCT_EXPORT_METHOD(setUser:(NSDictionary *)userInfo) {
+    if (![Bugsnag bugsnagStarted]) {
+        return;
+    }
     NSString *identifier = userInfo[@"id"] ? [RCTConvert NSString:userInfo[@"id"]] : nil;
     NSString *name = userInfo[@"name"] ? [RCTConvert NSString:userInfo[@"name"]] : nil;
     NSString *email = userInfo[@"email"] ? [RCTConvert NSString:userInfo[@"email"]] : nil;
@@ -188,14 +200,23 @@ RCT_EXPORT_METHOD(setUser:(NSDictionary *)userInfo) {
 }
 
 RCT_EXPORT_METHOD(startSession) {
+    if (![Bugsnag bugsnagStarted]) {
+        return;
+    }
     [Bugsnag startSession];
 }
 
 RCT_EXPORT_METHOD(clearUser) {
+    if (![Bugsnag bugsnagStarted]) {
+        return;
+    }
     [[Bugsnag configuration] setUser:nil withName:nil andEmail:nil];
 }
 
 RCT_EXPORT_METHOD(leaveBreadcrumb:(NSDictionary *)options) {
+    if (![Bugsnag bugsnagStarted]) {
+        return;
+    }
     [Bugsnag leaveBreadcrumbWithBlock:^(BugsnagBreadcrumb *crumb) {
         crumb.name = [RCTConvert NSString:options[@"name"]];
         crumb.type = BreadcrumbTypeFromString([RCTConvert NSString:options[@"type"]]);
@@ -214,8 +235,13 @@ RCT_EXPORT_METHOD(startWithOptions:(NSDictionary *)options) {
     NSString *sessionURLPath = [RCTConvert NSString:options[@"sessionsEndpoint"]];
     NSString *appVersion = [RCTConvert NSString:options[@"appVersion"]];
     NSString *codeBundleId = [RCTConvert NSString:options[@"codeBundleId"]];
+
     BugsnagConfiguration* config = [Bugsnag bugsnagStarted] ? [Bugsnag configuration] : [BugsnagConfiguration new];
-    config.apiKey = apiKey;
+
+    if (apiKey.length > 0) {
+        config.apiKey = apiKey;
+    }
+
     config.releaseStage = releaseStage;
     config.notifyReleaseStages = notifyReleaseStages;
     config.autoNotify = [RCTConvert BOOL:options[@"autoNotify"]];
@@ -227,16 +253,12 @@ RCT_EXPORT_METHOD(startWithOptions:(NSDictionary *)options) {
         return !([report.errorClass hasPrefix:@"RCTFatalException"]
                  && [report.errorMessage hasPrefix:@"Unhandled JS Exception"]);
     }];
-    if (sessionURLPath.length > 0) {
-        NSURL *sessionURL = [NSURL URLWithString:sessionURLPath];
-        if (sessionURL)
-            config.sessionURL = sessionURL;
-    }
+
     if (notifyURLPath.length > 0) {
-        NSURL *notifyURL = [NSURL URLWithString:notifyURLPath];
-        if (notifyURL)
-            config.notifyURL = notifyURL;
+        [config setEndpointsForNotify:notifyURLPath
+                             sessions:sessionURLPath];
     }
+
     if (appVersion.length > 0) {
         config.appVersion = appVersion;
     }
@@ -251,9 +273,18 @@ RCT_EXPORT_METHOD(startWithOptions:(NSDictionary *)options) {
         [Bugsnag startBugsnagWithConfiguration:config];
     }
     [self setNotifierDetails:[RCTConvert NSString:options[@"version"]]];
+    if (config.shouldAutoCaptureSessions) {
+        // The launch event session is skipped because shouldAutoCaptureSessions
+        // was not set when Bugsnag was first initialized. Manually sending a
+        // session to compensate.
+        [Bugsnag startSession];
+    }
 }
 
 - (void)setNotifierDetails:(NSString *)packageVersion {
+    if (![Bugsnag bugsnagStarted]) {
+        return;
+    }
     id notifier = [Bugsnag notifier];
     NSDictionary *details = [notifier valueForKey:@"details"];
     NSString *version;

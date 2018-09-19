@@ -1,3 +1,5 @@
+/* global jest, beforeEach, test, expect */
+
 beforeEach(() => {
   // ensure freshly mocked clients in each test
   jest.resetModules()
@@ -32,6 +34,7 @@ test('constructor(): works if everything is ok', () => {
 
   const { Client } = require('../Bugsnag')
   const c = new Client('API_KEY')
+  expect(c).toBeTruthy()
   expect(mockStart).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'API_KEY' }))
   expect(global.ErrorUtils.getGlobalHandler).toHaveBeenCalled()
   expect(global.ErrorUtils.setGlobalHandler).toHaveBeenCalled()
@@ -52,15 +55,15 @@ test('handleUncaughtErrors(): error handler calls notify(…) correctly', () => 
   handler(new Error('boom!'), false)
 
   expect(c.notify).toHaveBeenCalledWith(expect.any(Error), null, false, expect.any(Function), {
-    originalSeverity: "error",
-    severityReason: "unhandledException",
+    originalSeverity: 'error',
+    severityReason: 'unhandledException',
     unhandled: true
   })
 })
 
 test('handlePromiseRejections(): error handler calls notify(…) correctly', () => {
   jest.mock('react-native', () => ({
-    NativeModules: { BugsnagReactNative: { startWithOptions: jest.fn() } },
+    NativeModules: { BugsnagReactNative: { startWithOptions: jest.fn() } }
   }), { virtual: true })
 
   const Promise = require('promise/setimmediate')
@@ -77,10 +80,9 @@ test('handlePromiseRejections(): error handler calls notify(…) correctly', () 
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       try {
-
         expect(c.notify).toHaveBeenCalledWith(expect.any(Error), null, false, null, {
-          originalSeverity: "error",
-          severityReason: "unhandledPromiseRejection",
+          originalSeverity: 'error',
+          severityReason: 'unhandledPromiseRejection',
           unhandled: true
         })
       } catch (e) {
@@ -173,28 +175,28 @@ test('notify(): supplying unhandled state as param changes payload', () => {
   c.notify(new Error('nb boom!'), null, true, null, {
     originalSeverity: 'warning',
     unhandled: false,
-    severityReason: "handledException",
+    severityReason: 'handledException'
   })
   expect(mockNotifyBlocking).toHaveBeenCalledWith(
     expect.objectContaining({
       severity: 'warning',
       unhandled: false,
-      severityReason: "handledException"
+      severityReason: 'handledException'
     }),
     true,
     null
   )
 
   // mutate severity
-  c.notify(new Error('Mutate Severity'), report => {report.severity = 'info'}, true, null, {
+  c.notify(new Error('Mutate Severity'), report => { report.severity = 'info' }, true, null, {
     originalSeverity: 'warning',
     unhandled: false,
-    severityReason: "handledException",
+    severityReason: 'handledException'
   })
   expect(mockNotifyBlocking).toHaveBeenCalledWith(
     expect.objectContaining({
       severity: 'info',
-      severityReason: "userCallbackSetSeverity"
+      severityReason: 'userCallbackSetSeverity'
     }),
     true,
     null
@@ -273,6 +275,25 @@ test('leaveBreadcrumb(): calls the native leaveBreadcrumb method correctly', () 
   mockLeaveBreadcrumb.mockClear()
 })
 
+test('leaveBreadcrumb(): support setting "type" via metadata', () => {
+  const mockLeaveBreadcrumb = jest.fn()
+  jest.mock('react-native', () => ({
+    NativeModules: { BugsnagReactNative: { startWithOptions: jest.fn(), leaveBreadcrumb: mockLeaveBreadcrumb } }
+  }), { virtual: true })
+
+  const { Client, Configuration } = require('../Bugsnag')
+  const config = new Configuration('API_KEY')
+  const c = new Client(config)
+
+  c.leaveBreadcrumb('menu_expand', { type: 'UI', buttonClass: 'submit' })
+  expect(mockLeaveBreadcrumb).toHaveBeenCalledWith({
+    name: 'menu_expand',
+    type: 'UI',
+    metadata: { buttonClass: { type: 'string', value: 'submit' } }
+  })
+  mockLeaveBreadcrumb.mockClear()
+})
+
 test('{enable|disable}ConsoleBreadCrumbs(): wraps/unwraps console methods and calls leaveBreadcrumb appropriately', () => {
   const mockLeaveBreadcrumb = jest.fn()
   jest.mock('react-native', () => ({
@@ -325,12 +346,12 @@ test('{enable|disable}ConsoleBreadCrumbs(): gracefully handles serialization edg
   config.consoleBreadcrumbsEnabled = true
   const c = new Client(config)
 
-  const circular = {};
-  circular.ref = circular;
+  const circular = {}
+  circular.ref = circular
 
-  console.log('undefined cannot have toString() called on it', undefined);
-  console.warn('neither can null', null);
-  console.error('and objects with circular refs cannot be passed to JSON.stringify()', circular);
+  console.log('undefined cannot have toString() called on it', undefined)
+  console.warn('neither can null', null)
+  console.error('and objects with circular refs cannot be passed to JSON.stringify()', circular)
   expect(mockLeaveBreadcrumb).toHaveBeenCalledTimes(3)
 
   // because global side effects, ensure console wrapping is

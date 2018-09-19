@@ -73,7 +73,7 @@
 @property(nonatomic, readwrite, retain) NSString *logFilePath;
 @property(nonatomic, readwrite, retain)
     BSG_KSCrashReportStore *crashReportStore;
-@property(nonatomic, readwrite, assign) BSG_KSReportWriteCallback onCrash;
+@property(nonatomic, readwrite, assign) BSGReportCallback onCrash;
 @property(nonatomic, readwrite, assign) bool printTraceToStdout;
 @property(nonatomic, readwrite, assign) int maxStoredReports;
 
@@ -141,8 +141,7 @@ IMPLEMENT_EXCLUSIVE_SHARED_INSTANCE(BSG_KSCrash)
     if ((self = [super init])) {
         self.bundleName = [[NSBundle mainBundle] infoDictionary][@"CFBundleName"];
 
-        NSString *storePath = [BugsnagFileStore findReportStorePath:reportFilesDirectory
-                                                         bundleName:self.bundleName];
+        NSString *storePath = [BugsnagFileStore findReportStorePath:reportFilesDirectory];
 
         if (!storePath) {
             BSG_KSLOG_ERROR(
@@ -203,7 +202,7 @@ IMPLEMENT_EXCLUSIVE_SHARED_INSTANCE(BSG_KSCrash)
     bsg_kscrash_setPrintTraceToStdout(printTraceToStdout);
 }
 
-- (void)setOnCrash:(BSG_KSReportWriteCallback)onCrash {
+- (void)setOnCrash:(BSGReportCallback)onCrash {
     _onCrash = onCrash;
     bsg_kscrash_setCrashNotifyCallback(onCrash);
 }

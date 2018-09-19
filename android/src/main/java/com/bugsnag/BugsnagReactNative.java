@@ -1,17 +1,19 @@
 package com.bugsnag;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Map;
-import java.util.HashMap;
-import java.util.List;
-import java.util.logging.Logger;
-import java.util.Map;
-import java.lang.String;
-import java.lang.NumberFormatException;
-import java.io.IOException;
+import android.app.Activity;
+import android.content.Context;
+import android.support.annotation.NonNull;
 
+import com.bugsnag.android.BreadcrumbType;
+import com.bugsnag.android.Bugsnag;
+import com.bugsnag.android.Callback;
+import com.bugsnag.android.Client;
+import com.bugsnag.android.Configuration;
+import com.bugsnag.android.JsonStream;
+import com.bugsnag.android.MetaData;
+import com.bugsnag.android.Report;
+import com.bugsnag.android.Severity;
+import com.facebook.react.ReactPackage;
 import com.facebook.react.bridge.JavaScriptModule;
 import com.facebook.react.bridge.NativeModule;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -21,13 +23,19 @@ import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReadableMapKeySetIterator;
-import com.facebook.react.ReactPackage;
 import com.facebook.react.uimanager.ViewManager;
 
 import android.content.Context;
 import android.app.Activity;
 
 import com.bugsnag.android.*;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.logging.Logger;
 
 
 public class BugsnagReactNative extends ReactContextBaseJavaModule {
@@ -42,14 +50,23 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
   }
 
   public static Client start(Context context) {
-    return Bugsnag.init(context);
+    Client client = Bugsnag.init(context);
+    // The first session starts during JS initialization
+    // Applications which have specific components in RN instead of the primary
+    // way to interact with the application should instead leverage startSession
+    // manually.
+    client.setAutoCaptureSessions(false);
+    return client;
   }
 
   public static Client startWithApiKey(Context context, String APIKey) {
-    return Bugsnag.init(context, APIKey);
+    Client client = Bugsnag.init(context, APIKey);
+    client.setAutoCaptureSessions(false);
+    return client;
   }
 
   public static Client startWithConfiguration(Context context, Configuration config) {
+    config.setAutoCaptureSessions(false);
     return Bugsnag.init(context, config);
   }
 
@@ -89,7 +106,6 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
   @ReactMethod
   public void leaveBreadcrumb(ReadableMap options) {
       String name = options.getString("name");
-      logger.info(String.format("Leaving breadcrumb '%s'", name));
       Bugsnag.leaveBreadcrumb(name,
                               parseBreadcrumbType(options.getString("type")),
                               readStringMap(options.getMap("metadata")));
@@ -114,7 +130,7 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
       final String errorMessage = payload.getString("errorMessage");
       final String rawStacktrace = payload.getString("stacktrace");
 
-      logger.info(String.format("Sending exception: %s - %s\n",
+      logger.info(String.format("Sending exception: %s - %s %s\n",
                                 errorClass, errorMessage, rawStacktrace));
       JavaScriptException exc = new JavaScriptException(errorClass,
                                                         errorMessage,
@@ -130,10 +146,7 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
       map.put("severity", severity);
       map.put("severityReason", severityReason);
 
-      logger.info("Notifying native client, severity = " + severity +
-              ", severityReason = " + severityReason);
       Bugsnag.internalClientNotify(exc, map, blocking, handler);
-      logger.info("Notified native client");
 
       if (callback != null)
         callback.invoke();
@@ -141,7 +154,6 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void setUser(ReadableMap userInfo) {
-      logger.info("Setting user data");
       String userId = userInfo.hasKey("id") ? userInfo.getString("id") : null;
       String email = userInfo.hasKey("email") ? userInfo.getString("email") : null;
       String name = userInfo.hasKey("name") ? userInfo.getString("name") : null;
@@ -157,7 +169,7 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
    * Convert a typed map into a string Map
    */
   private Map<String, String> readStringMap(ReadableMap map) {
-    Map output = new HashMap<String,String>();
+    Map<String,String> output = new HashMap<>();
     ReadableMapKeySetIterator iterator = map.keySetIterator();
     while (iterator.hasNextKey()) {
         String key = iterator.nextKey();
@@ -181,7 +193,7 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
   }
 
   private Client getClient(String apiKey) {
-      Client client = null;
+      Client client;
       try {
           client = Bugsnag.getClient();
       } catch (IllegalStateException exception) {
@@ -204,7 +216,7 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
   }
 
   private void configureRuntimeOptions(Client client, ReadableMap options) {
-      client.setIgnoreClasses(new String[] {"com.facebook.react.common.JavascriptException"});
+      client.setIgnoreClasses("com.facebook.react.common.JavascriptException");
       Configuration config = client.getConfig();
       if (options.hasKey("appVersion")) {
           String version = options.getString("appVersion");
@@ -212,17 +224,22 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
               client.setAppVersion(version);
       }
 
+      String notify = null;
+      String sessions = null;
+
       if (options.hasKey("endpoint")) {
-          String endpoint = options.getString("endpoint");
-          if (endpoint != null && endpoint.length() > 0)
-              client.setEndpoint(endpoint);
+          notify = options.getString("endpoint");
+      }
+      if (options.hasKey("sessionsEndpoint")) {
+          sessions = options.getString("sessionsEndpoint");
       }
 
-      if (options.hasKey("sessionsEndpoint")) {
-          String endpoint = options.getString("sessionsEndpoint");
-          if (endpoint != null && endpoint.length() > 0)
-              config.setSessionEndpoint(endpoint);
+      if (notify != null && notify.length() > 0) {
+          config.setEndpoints(notify, sessions);
+      } else if (sessions != null && sessions.length() > 0) {
+          logger.warning("The session tracking endpoint should not be set without the error reporting endpoint.");
       }
+
 
       if (options.hasKey("releaseStage")) {
           String releaseStage = options.getString("releaseStage");
@@ -263,10 +280,11 @@ public class BugsnagReactNative extends ReactContextBaseJavaModule {
       if (options.hasKey("autoCaptureSessions")) {
           boolean autoCapture = options.getBoolean("autoCaptureSessions");
           config.setAutoCaptureSessions(autoCapture);
-          Activity activity = getCurrentActivity();
-
-          if (activity != null) {
-              client.startFirstSession(activity);
+          if (getCurrentActivity() != null && autoCapture) {
+              // The launch event session is skipped because autoCaptureSessions
+              // was not set when Bugsnag was first initialized. Manually sending a
+              // session to compensate.
+              client.startSession();
           }
       }
   }
@@ -278,6 +296,7 @@ class BugsnagPackage implements ReactPackage {
     return Collections.emptyList();
   }
 
+  @SuppressWarnings("rawtypes") // the ReactPackage interface uses a raw type, ignore it
   @Override
   public List<ViewManager> createViewManagers(
           ReactApplicationContext reactContext) {
@@ -339,7 +358,7 @@ class DiagnosticsCallback implements Callback {
      * Convert a typed map from JS into a Map
      */
     Map<String, Object> readObjectMap(ReadableMap map) {
-        Map output = new HashMap<String, Object>();
+        Map<String, Object> output = new HashMap<>();
         ReadableMapKeySetIterator iterator = map.keySetIterator();
 
         while (iterator.hasNextKey()) {
@@ -380,8 +399,11 @@ class DiagnosticsCallback implements Callback {
             MetaData reportMetadata = report.getError().getMetaData();
             for (String tab : metadata.keySet()) {
                 Object value = metadata.get(tab);
+
                 if (value instanceof Map) {
-                    Map<String, Object> values = (Map<String, Object>)value;
+                    @SuppressWarnings("unchecked") // ignore type erasure when casting Map
+                    Map<String, Object> values = (Map<String, Object>) value;
+
                     for (String key : values.keySet()) {
                         reportMetadata.addToTab(tab, key, values.get(key));
                     }
@@ -395,7 +417,10 @@ class DiagnosticsCallback implements Callback {
  * Creates a streamable exception with a JavaScript stacktrace
  */
 class JavaScriptException extends Exception implements JsonStream.Streamable {
+
     private static final String EXCEPTION_TYPE = "browserjs";
+    private static final long serialVersionUID = 1175784680140218622L;
+
     private final String name;
     private final String rawStacktrace;
 
@@ -405,8 +430,7 @@ class JavaScriptException extends Exception implements JsonStream.Streamable {
         this.rawStacktrace = rawStacktrace;
     }
 
-    public void toStream(JsonStream writer) throws IOException {
-        BugsnagReactNative.logger.info("Serializing exception");
+    public void toStream(@NonNull JsonStream writer) throws IOException {
         writer.beginObject();
         writer.name("errorClass").value(name);
         writer.name("message").value(getLocalizedMessage());
