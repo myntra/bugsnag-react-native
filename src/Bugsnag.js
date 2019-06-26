@@ -46,9 +46,15 @@ export class Client {
 
       ErrorUtils.setGlobalHandler((error, isFatal) => {
         if (this.config.autoNotify && this.config.shouldNotify()) {
-          this.notify(error, null, !!NativeClient.notifyBlocking, (queued) => {
+          this.notify(error, null, true, () => {
             if (previousHandler) {
-              previousHandler(error, isFatal)
+              // Wait 150ms before terminating app, allowing native processing
+              // to complete, if any. On iOS in particular, there is no
+              // synchronous means ensure a report delivery attempt is
+              // completed before invoking callbacks.
+              setTimeout(() => {
+                previousHandler(error, isFatal)
+              }, 150)
             }
           }, new HandledState('error', true, 'unhandledException'))
         } else if (previousHandler) {
@@ -64,7 +70,7 @@ export class Client {
     tracking.enable({
       allRejections: true,
       onUnhandled: function (id, error) {
-        client.notify(error, null, false, null, new HandledState('error', true, 'unhandledPromiseRejection'))
+        client.notify(error, null, true, null, new HandledState('error', true, 'unhandledPromiseRejection'))
       },
       onHandled: function () {}
     })
@@ -75,9 +81,6 @@ export class Client {
    * @param error               The error instance to report
    * @param beforeSendCallback  A callback invoked before the report is sent
    *                            so additional information can be added
-   * @param blocking            When true, blocks the native thread execution
-   *                            until complete. If unspecified, sends the
-   *                            request asynchronously
    * @param postSendCallback    Callback invoked after request is queued
    */
   notify = async (error, beforeSendCallback, blocking, postSendCallback, _handledState) => {
@@ -105,16 +108,32 @@ export class Client {
     }
 
     const payload = report.toJSON()
-    if (blocking && NativeClient.notifyBlocking) {
-      NativeClient.notifyBlocking(payload, blocking, postSendCallback)
-    } else {
-      NativeClient.notify(payload)
-      if (postSendCallback) { postSendCallback(true) }
-    }
+    payload.blocking = !!blocking
+
+    NativeClient.notify(payload).then(() => {
+      if (postSendCallback) {
+        postSendCallback()
+      }
+    })
   }
 
   setUser = (id, name, email) => {
-    NativeClient.setUser({id, name, email})
+    const safeStringify = value => {
+      try {
+        return String(value)
+      } catch (e) {
+        // calling String() on an object with a null
+        // prototype can throw, so tolerate that here
+        return undefined
+      }
+    }
+
+    // the native setUser() fn only accepts strings so coerce each values
+    id = safeStringify(id)
+    name = safeStringify(name)
+    email = safeStringify(email)
+
+    NativeClient.setUser({ id, name, email })
   }
 
   /**
@@ -124,8 +143,66 @@ export class Client {
     NativeClient.clearUser()
   }
 
+  /**
+   * Starts tracking a new session. You should disable automatic session tracking via
+   * `autoCaptureSessions` if you call this method.
+   *
+   * You should call this at the appropriate time in your application when you wish to start a
+   * session. Any subsequent errors which occur in your application will be reported to
+   * Bugsnag and will count towards your application's
+   * [stability score](https://docs.bugsnag.com/product/releases/releases-dashboard/#stability-score).
+   * This will start a new session even if there is already an existing
+   * session; you should call `resumeSession()` if you only want to start a session
+   * when one doesn't already exist.
+   *
+   * @see `resumeSession()`
+   * @see `stopSession()`
+   * @see `autoCaptureSessions`
+   */
   startSession = () => {
     NativeClient.startSession()
+  }
+
+  /**
+   * Stops tracking a session. You should disable automatic session tracking via
+   * `autoCaptureSessions` if you call this method.
+   *
+   * You should call this at the appropriate time in your application when you wish to stop a
+   * session. Any subsequent errors which occur in your application will still be reported to
+   * Bugsnag but will not count towards your application's
+   * [stability score](https://docs.bugsnag.com/product/releases/releases-dashboard/#stability-score).
+   * This can be advantageous if, for example, you do not wish the
+   * stability score to include crashes in a background service.
+   *
+   * @see `startSession()`
+   * @see `resumeSession()`
+   * @see `autoCaptureSessions`
+   */
+  stopSession = () => {
+    NativeClient.stopSession()
+  }
+
+  /**
+   * Resumes a session which has previously been stopped, or starts a new session if none exists.
+   * If a session has already been resumed or started and has not been stopped, calling this
+   * method will have no effect. You should disable automatic session tracking via
+   * `autoCaptureSessions` if you call this method.
+   *
+   * It's important to note that sessions are stored in memory for the lifetime of the
+   * application process and are not persisted on disk. Therefore calling this method on app
+   * startup would start a new session, rather than continuing any previous session.
+   *
+   * You should call this at the appropriate time in your application when you wish to resume
+   * a previously started session. Any subsequent errors which occur in your application will
+   * be reported to Bugsnag and will count towards your application's
+   * [stability score](https://docs.bugsnag.com/product/releases/releases-dashboard/#stability-score).
+   *
+   * @see `startSession()`
+   * @see `stopSession()`
+   * @see `autoCaptureSessions`
+   */
+  resumeSession = () => {
+    NativeClient.resumeSession()
   }
 
   /**

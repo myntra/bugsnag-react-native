@@ -7,3 +7,7 @@
 /test
 /test-harness
 /.travis.yml
+/features
+maze_output
+android/local.properties
+android/android.iml
