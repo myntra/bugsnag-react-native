@@ -36,7 +36,6 @@
 #include "BSG_KSObjC.h"
 #include "BSG_KSSignalInfo.h"
 #include "BSG_KSString.h"
-#include "BSG_KSZombie.h"
 
 //#define BSG_kSLogger_LocalLevel TRACE
 #include "BSG_KSLogger.h"
@@ -884,11 +883,6 @@ void bsg_kscrw_i_writeMemoryContents(
     writer->beginObject(writer, key);
     {
         writer->addUIntegerElement(writer, BSG_KSCrashField_Address, address);
-        const char *zombieClassName = bsg_kszombie_className(object);
-        if (zombieClassName != NULL) {
-            writer->addStringElement(writer, BSG_KSCrashField_LastDeallocObject,
-                                     zombieClassName);
-        }
         switch (bsg_ksobjc_objectType(object)) {
         case BSG_KSObjCTypeUnknown:
             if (object == NULL) {
@@ -983,6 +977,12 @@ bool bsg_kscrw_i_isValidPointer(const uintptr_t address) {
     return true;
 }
 
+/**
+ * Strip higher order bits from addresses which aren't related to the actual
+ * location.
+ */
+#define BSG_ValidPointerMask  0x0000000fffffffff
+
 /** Write the contents of a memory location only if it contains notable data.
  * Also writes meta information about the data.
  *
@@ -990,19 +990,22 @@ bool bsg_kscrw_i_isValidPointer(const uintptr_t address) {
  *
  * @param key The object key, if needed.
  *
- * @param address The memory address.
+ * @param rawAddress The memory address.
  */
 void bsg_kscrw_i_writeMemoryContentsIfNotable(
     const BSG_KSCrashReportWriter *const writer, const char *const key,
-    const uintptr_t address) {
+    const uintptr_t rawAddress) {
+    uintptr_t address = rawAddress;
     if (!bsg_kscrw_i_isValidPointer(address)) {
-        return;
+        address &= BSG_ValidPointerMask;
+        if (!bsg_kscrw_i_isValidPointer(address)) {
+            return;
+        }
     }
 
     const void *object = (const void *)address;
 
     if (bsg_ksobjc_objectType(object) == BSG_KSObjCTypeUnknown &&
-        bsg_kszombie_className(object) == NULL &&
         !bsg_kscrw_i_isValidString(object)) {
         // Nothing notable about this memory location.
         return;
@@ -1779,20 +1782,6 @@ void bsg_kscrw_i_writeError(const BSG_KSCrashReportWriter *const writer,
             {
                 writer->addStringElement(writer, BSG_KSCrashField_Name,
                                          crash->userException.name);
-                if (crash->userException.language != NULL) {
-                    writer->addStringElement(writer, BSG_KSCrashField_Language,
-                                             crash->userException.language);
-                }
-                if (crash->userException.lineOfCode != NULL) {
-                    writer->addStringElement(writer,
-                                             BSG_KSCrashField_LineOfCode,
-                                             crash->userException.lineOfCode);
-                }
-                if (crash->userException.customStackTrace != NULL) {
-                    writer->addJSONElement(
-                        writer, BSG_KSCrashField_Backtrace,
-                        crash->userException.customStackTrace);
-                }
             }
             writer->endContainer(writer);
             break;
@@ -1853,25 +1842,6 @@ void bsg_kscrw_i_writeProcessState(const BSG_KSCrashReportWriter *const writer,
                                    const char *const key) {
     writer->beginObject(writer, key);
     {
-        const void *excAddress = bsg_kszombie_lastDeallocedNSExceptionAddress();
-        if (excAddress != NULL) {
-            writer->beginObject(writer,
-                                BSG_KSCrashField_LastDeallocedNSException);
-            {
-                writer->addUIntegerElement(writer, BSG_KSCrashField_Address,
-                                           (uintptr_t)excAddress);
-                writer->addStringElement(
-                    writer, BSG_KSCrashField_Name,
-                    bsg_kszombie_lastDeallocedNSExceptionName());
-                writer->addStringElement(
-                    writer, BSG_KSCrashField_Reason,
-                    bsg_kszombie_lastDeallocedNSExceptionReason());
-                bsg_kscrw_i_writeAddressReferencedByString(
-                    writer, BSG_KSCrashField_ReferencedObject,
-                    bsg_kszombie_lastDeallocedNSExceptionReason());
-            }
-            writer->endContainer(writer);
-        }
     }
     writer->endContainer(writer);
 }
@@ -2093,7 +2063,32 @@ void bsg_kscrashreport_writeStandardReport(
         writer->endContainer(writer);
 
         if (crashContext->config.onCrashNotify != NULL) {
+            // Write handled exception report info
             writer->beginObject(writer, BSG_KSCrashField_UserAtCrash);
+            if (crashContext->crash.crashType == BSG_KSCrashTypeUserReported) {
+                if (crashContext->crash.userException.overrides != NULL) {
+                   writer->addJSONElement(writer, BSG_KSCrashField_Overrides,
+                                          crashContext->crash.userException.overrides);
+                }
+                if (crashContext->crash.userException.handledState != NULL) {
+                    writer->addJSONElement(writer, BSG_KSCrashField_HandledState,
+                                           crashContext->crash.userException.handledState);
+                }
+                if (crashContext->crash.userException.metadata != NULL) {
+                    writer->addJSONElement(writer, BSG_KSCrashField_Metadata,
+                                           crashContext->crash.userException.metadata);
+                }
+                if (crashContext->crash.userException.state != NULL) {
+                    writer->addJSONElement(writer, BSG_KSCrashField_State,
+                                           crashContext->crash.userException.state);
+                }
+                if (crashContext->crash.userException.config != NULL) {
+                    writer->addJSONElement(writer, BSG_KSCrashField_Config,
+                                           crashContext->crash.userException.config);
+                }
+                writer->addIntegerElement(writer, BSG_KSCrashField_DiscardDepth,
+                                       crashContext->crash.userException.discardDepth);
+            }
             { bsg_kscrw_i_callUserCrashHandler(crashContext, writer); }
             writer->endContainer(writer);
         }

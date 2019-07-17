@@ -1,6 +1,395 @@
 Changelog
 =========
 
+## 2.22.1 (2019-07-16)
+
+### Bug fixes
+
+* (iOS) Upgrade bugsnag-cocoa to v5.22.3
+  * Fix JSON parsing errors in crash reports for control characters and some
+    other sequences
+    [bugsnag-cocoa#382](https://github.com/bugsnag/bugsnag-cocoa/pull/382)
+  * Disable reporting out-of-memory events in debug mode, removing false
+    positives triggered by killing and relaunching apps using development tools.
+    [bugsnag-cocoa#380](https://github.com/bugsnag/bugsnag-cocoa/pull/380)
+
+## 2.22.0 (2019-07-10)
+
+This release adds a compile-time dependency on the Kotlin standard library. This should not affect
+the use of any API supplied by bugsnag-android/bugsnag-react-native.
+
+* (Android) Upgrade to bugsnag-android v4.16.1
+  * Prevent overwrite of signal mask when installing ANR handler
+    [#520](https://github.com/bugsnag/bugsnag-android/pull/520)
+  * Use NetworkCallback to monitor connectivity changes on newer API levels
+  [#501](https://github.com/bugsnag/bugsnag-android/pull/501)
+  * Send minimal error report if cached file is corrupted/empty
+  [#500](https://github.com/bugsnag/bugsnag-android/pull/500)
+  * Fix abort() in native code when storing breadcrumbs with null values in
+    metadata
+    [#510](https://github.com/bugsnag/bugsnag-android/pull/510)
+  * Convert metadata to map when notifying the NDK observer
+    [#513](https://github.com/bugsnag/bugsnag-android/pull/513)
+
+## 2.21.1 (2019-06-27)
+
+### Bug fixes
+
+* (iOS) Upgrade bugsnag-cocoa to v5.22.2
+  * Fix trimming the stacktraces of handled error/exceptions using the
+    [`depth`](https://docs.bugsnag.com/platforms/ios/reporting-handled-exceptions/#depth)
+    property.
+    [Paul Zabelin](https://github.com/paulz)
+    [bugsnag-cocoa#363](https://github.com/bugsnag/bugsnag-cocoa/pull/363)
+  * Fix crash report parsing logic around arrays of numbers. Metadata which
+    included arrays of numbers could previously had missing values.
+    [bugsnag-cocoa#365](https://github.com/bugsnag/bugsnag-cocoa/pull/365)
+  * Fix incrementing unhandled counts when using internal notify() API. This
+    resolves discrepancies in stability scores for users of bugsnag-react-native
+    after receiving unhandled JavaScript events.
+    [bugsnag-cocoa#370](https://github.com/bugsnag/bugsnag-cocoa/pull/370)
+
+## 2.21.0 (2019-06-12)
+
+### Enhancements
+
+* (Android) Upgrade to bugsnag-android v4.15.0
+  * Improve ANR detection by using a signal handler to detect `SIGQUIT`
+  events, removing dependence on "in foreground" calculations. This change
+  should remove false positives. This change deprecates the configuration
+  options `setAnrThresholdMs`/`getAnrThresholdMs` as they now have no effect and
+  the underlying OS ANR threshold is used in all cases.
+  [#490](https://github.com/bugsnag/bugsnag-android/pull/490)
+  * Add `detectNdkCrashes` configuration option to toggle whether C/C++ crashes
+  are detected
+  [#491](https://github.com/bugsnag/bugsnag-android/pull/491)
+  * Reduce AAR size [#492](https://github.com/bugsnag/bugsnag-android/pull/492)
+  * Make handledState.isUnhandled() publicly readable [#496](https://github.com/bugsnag/bugsnag-android/pull/496)
+* (iOS) Ensure only the necessary files are included in the npm tarball [#356](https://github.com/bugsnag/bugsnag-react-native/pull/365)
+
+## 2.20.0 (2019-05-29)
+
+This release updates the package's Gradle build script to use `api` and `implementation` rather than the deprecated
+`compile` syntax. If you are using v2.X of the Android Gradle Plugin, you will need to upgrade to v3.X of
+the [Android Gradle Plugin](https://developer.android.com/studio/releases/gradle-plugin#updating-plugin),
+and [upgrade your gradle wrapper](https://docs.gradle.org/current/userguide/gradle_wrapper.html#sec:upgrading_wrapper).
+
+* Update deprecated compile dependencies to use implementation/api
+[#362](https://github.com/bugsnag/bugsnag-react-native/pull/362)
+
+* Remove unnecessary gradlew from android directory, reducing artefact bundle size
+[#363](https://github.com/bugsnag/bugsnag-react-native/pull/363)
+
+### Bug fixes
+
+* Remove nullability annotations to workaround androidx jetifier issue
+[#361](https://github.com/bugsnag/bugsnag-react-native/pull/361)
+
+## 2.19.1 (2019-05-21)
+
+### Bug fixes
+
+* (iOS) Upgrade to bugsnag-cocoa v5.22.1:
+  * Report correct app version in out-of-memory reports. Previously the bundle
+    version was reported as the version number rather than the short version
+    string.
+    [#349](https://github.com/bugsnag/bugsnag-cocoa/pull/349)
+  * Fix missing stacktraces in reports generated from `notify()`
+    [#348](https://github.com/bugsnag/bugsnag-cocoa/pull/348)
+* (Android) Upgrade to bugsnag-android v4.14.2
+  * Disable ANR detection by default [#484](https://github.com/bugsnag/bugsnag-android/pull/484)
+
+## 2.19.0 (2019-05-13)
+
+### Enhancements
+
+* (iOS) Upgrade to bugsnag-cocoa v5.22.0:
+  * Add configuration option (`reportOOMs`) to disable out-of-memory (OOM) event
+    reporting, defaulting to enabled.
+    [bugsnag-cocoa#345](https://github.com/bugsnag/bugsnag-cocoa/pull/345)
+  * Disable background OOM reporting by default. It can be enabled using
+    `reportBackgroundOOMs`.
+    [bugsnag-cocoa#345](https://github.com/bugsnag/bugsnag-cocoa/pull/345)
+
+## 2.18.0 (2019-05-08)
+
+* Collect version information in device.runtimeVersions
+[#345](https://github.com/bugsnag/bugsnag-react-native/pull/345)
+
+Run checkstyle and lint on Android code, address existing violations
+[#452](https://github.com/bugsnag/bugsnag-react-native/pull/336)
+
+## 2.17.1 (2019-04-24)
+
+Re-release that fixes packaging issue where the previous artefact included duplicate header files, preventing compilation for iOS
+
+## 2.17.0 (2019-04-18)
+
+### Bug fixes
+
+* (iOS) Prevent delivering duplicate fatal JS crash reports when using enhanced
+  native integration.
+  [#337](https://github.com/bugsnag/bugsnag-react-native/pull/337)
+
+### Enhancements
+
+* (iOS) Upgrade to bugsnag-cocoa v5.20.0:
+  * Persist breadcrumbs on disk to allow reading upon next boot in the event of
+    an uncatchable app termination.
+  * Add `+[Bugsnag appDidCrashLastLaunch]` as a helper to determine if the
+    previous launch of the app ended in a crash or otherwise unexpected
+    termination.
+  * Report unexpected app terminations on iOS as likely out of memory events
+    where the operating system killed the app
+
+## 2.16.0 (2019-04-04)
+
+* (Android) Upgrade to bugsnag-android v4.13.0
+
+  ### Enhancements
+
+  * Add ANR detection to bugsnag-android
+  [#442](https://github.com/bugsnag/bugsnag-android/pull/442)
+
+  * Add unhandled_events field to native payload
+  [#445](https://github.com/bugsnag/bugsnag-android/pull/445)
+
+  ### Bug fixes
+
+  * Ensure boolean object from map serialised as boolean primitive in JNI
+  [#452](https://github.com/bugsnag/bugsnag-android/pull/452)
+
+  * Prevent NPE occurring when calling resumeSession()
+  [#444](https://github.com/bugsnag/bugsnag-android/pull/444)
+
+* (Cocoa) Upgrade to bugsnag-cocoa v5.19.1
+
+  ### Bug fixes
+
+  * Fix generating an incorrect stacktrace used when logging an exception to
+    Bugsnag from a location other than the original call site (for example, from a
+    logging function or across threads).  If an exception was raised/thrown, then
+    the resulting Bugsnag report from `notify()` will now use the `NSException`
+    instance's call stack addresses to construct the stacktrace, ignoring depth.
+    This fixes an issue in macOS exception reporting where `reportException` is
+    reporting the handler code stacktrace rather than the reported exception
+    stack.
+    [#334](https://github.com/bugsnag/bugsnag-cocoa/pull/334)
+
+  * Fix network connectivity monitor by connecting to the correct domain
+    [Jacky Wijaya](https://github.com/Jekiwijaya)
+    [#332](https://github.com/bugsnag/bugsnag-cocoa/pull/332)
+
+
+
+
+## 2.15.0 (2019-03-07)
+
+* Add stopSession() and resumeSession() to Client [#314](https://github.com/bugsnag/bugsnag-react-native/pull/314)
+
+* (Android) Upgrade to bugsnag-android v4.12.0
+
+  ### Enhancements
+
+  * Add stopSession() and resumeSession() to Client
+  [#429](https://github.com/bugsnag/bugsnag-android/pull/429)
+
+  ### Bug fixes
+
+  * Prevent overwriting config.projectPackages if already set
+    [#428](https://github.com/bugsnag/bugsnag-android/pull/428)
+
+  * Fix incorrect session handledCount when notifying in quick succession
+    [#434](https://github.com/bugsnag/bugsnag-android/pull/434)
+
+* (Cocoa) Upgrade to bugsnag-cocoa v5.19.0
+
+  Note for Carthage users: this release updates the Xcode configuration to the settings recommended by Xcode 10.
+
+  * Update workspace to recommended settings suggested by XCode 10
+    [#324](https://github.com/bugsnag/bugsnag-cocoa/pull/324)
+
+  ### Enhancements
+
+  * Add stopSession() and resumeSession() to Bugsnag
+    [#325](https://github.com/bugsnag/bugsnag-cocoa/pull/325)
+
+  * Capture basic report diagnostics in the file path in case of crash report
+    content corruption
+    [#327](https://github.com/bugsnag/bugsnag-cocoa/pull/327)
+
+## 2.14.0 (2019-01-23)
+
+* (Android) Upgrade to bugsnag-android v4.11.0
+  ### Enhancements
+
+  * [NDK] Improve support for C++ exceptions, adding the exception class name
+    and description to reports and improving the stacktrace quality
+    [#412](https://github.com/bugsnag/bugsnag-android/pull/412)
+
+  * Update vendored GSON dependency to latest available version
+  [#415](https://github.com/bugsnag/bugsnag-android/pull/415)
+
+  ### Bug fixes
+
+  * Fix cached error deserialisation where the Throwable has a cause
+    [#418](https://github.com/bugsnag/bugsnag-android/pull/418)
+
+  * Refactor error report deserialisation
+    [#419](https://github.com/bugsnag/bugsnag-android/pull/419)
+
+  * Fix unlikely initialization failure if a device orientation event listener
+    cannot be enabled
+
+  * Cache result of device root check
+    [#411](https://github.com/bugsnag/bugsnag-android/pull/411)
+
+  * Prevent unnecessary free disk calculations on initialisation
+  [#409](https://github.com/bugsnag/bugsnag-android/pull/409)
+
+## 2.13.1 (2019-01-10)
+
+### Bug Fixes
+
+* TypeScript: ensure types are included in the npm package [#305](https://github.com/bugsnag/bugsnag-react-native/pull/305)
+
+## 2.13.0 (2019-01-07)
+
+### Bug Fixes
+
+* TypeScript: allow null values in setUser method [#279](https://github.com/bugsnag/bugsnag-react-native/pull/279)
+
+* (iOS) Upgrade to bugsnag-cocoa v5.17.3
+  * Fix case where notify() causes an unhandled report
+    [#322](https://github.com/bugsnag/bugsnag-cocoa/pull/322)
+
+  * Fix possible crash when fetching system info to append to a crash report
+    [#321](https://github.com/bugsnag/bugsnag-cocoa/pull/321)
+
+* (Android) Upgrade to bugsnag-android v4.9.3
+  * Improve kotlin support by allowing property access
+  [#393](https://github.com/bugsnag/bugsnag-android/pull/393)
+
+  * Added additional nullability annotations to public API
+  [#395](https://github.com/bugsnag/bugsnag-android/pull/395)
+
+  * Migrate metaData.device.cpuAbi to device.cpuAbi in JSON payload
+  [#404](https://github.com/bugsnag/bugsnag-android/pull/404)
+
+  * Add binary architecture of application to payload
+  [#389](https://github.com/bugsnag/bugsnag-android/pull/389)
+
+  * Prevent errors from leaving a self-referencing breadcrumb
+  [#391](https://github.com/bugsnag/bugsnag-android/pull/391)
+
+  * Fix calculation of durationInForeground when autoCaptureSessions is false
+  [#394](https://github.com/bugsnag/bugsnag-android/pull/394)
+
+  * Prevent Bugsnag.init from instantiating more than one client
+  [#403](https://github.com/bugsnag/bugsnag-android/pull/403)
+
+  * Make config.metadata publicly accessible
+  [#406](https://github.com/bugsnag/bugsnag-android/pull/406)
+
+## 2.12.6 (2018-12-05)
+
+### Bug Fixes
+
+* (iOS) Upgrade to bugsnag-cocoa v5.17.2
+  * Add Device time of report capture to JSON payload
+    [#315](https://github.com/bugsnag/bugsnag-cocoa/pull/315)
+
+## 2.12.5 (2018-11-30)
+
+### Bug Fixes
+
+* (iOS) Ensure reports requiring complex processing are delivered by delaying
+  termination handler until written to disk.
+    [#290](https://github.com/bugsnag/bugsnag-react-native/pull/290)
+    [#287](https://github.com/bugsnag/bugsnag-react-native/pull/287)
+    [Craig Petzel](https://github.com/cpetzel)
+
+* (iOS) Upgrade to bugsnag-cocoa v5.17.1
+  * Fix stack trace resolution on iPhone XS sometimes reporting incorrect
+  addresses
+  [#319](https://github.com/bugsnag/bugsnag-cocoa/pull/319)
+  * Add `fatalError` and other assertion failure messages in reports for
+    Swift 4.2 apps. Note that this only includes messages which are 16
+    characters or longer. See the linked pull request for more information.
+    [#320](https://github.com/bugsnag/bugsnag-cocoa/pull/320)
+* (Android) Upgrade to bugsnag-android v4.9.3
+  * Handle null values in MetaData.mergeMaps, preventing potential NPE
+    [#386](https://github.com/bugsnag/bugsnag-android/pull/386)
+
+## 2.12.4 (2018-11-08)
+
+### Bug Fixes
+
+* (Android) Restore support for react-native < 0.56 due to regression in 2.12.3
+
+## 2.12.3 (2018-11-08)
+
+### Bug Fixes
+
+* (Android) Upgrade to bugsnag-android v4.9.2
+  * [NDK] Fix regression in 4.9.0 which truncated stacktraces on 64-bit devices
+    to a single frame
+    [bugsnag-android#383](https://github.com/bugsnag/bugsnag-android/pull/383)
+
+
+## 2.12.2 (2018-11-02)
+
+### Bug Fixes
+
+* (Android) Upgrade to bugsnag-android v4.9.1
+  * Allow setting context to null from callbacks
+    [bugsnag-android#381](https://github.com/bugsnag/bugsnag-android/pull/381)
+
+## 2.12.1 (2018-10-31)
+
+### Bug Fixes
+
+* TypeScript: allow undefined apiKeyOrConfig in Client constructor [#278](https://github.com/bugsnag/bugsnag-react-native/pull/278)
+
+## 2.12.0 (2018-10-29)
+
+### Enhancements
+
+* (Android) Upgrade to bugsnag-android v4.9.0
+  * Add a callback to allow modifying reports immediately prior to delivery,
+    including fatal crashes from native C/C++ code. For more information, see
+    the [callback reference](https://docs.bugsnag.com/platforms/android/sdk/customizing-error-reports).
+    [bugsnag-android#379](https://github.com/bugsnag/bugsnag-android/pull/379)
+
+### Bug Fixes
+
+* (Android) Upgrade to bugsnag-android v4.9.0
+  * [NDK] Improve stack trace quality for signals raised on ARM32 devices
+    [bugsnag-android#378](https://github.com/bugsnag/bugsnag-android/pull/378)
+
+## 2.11.0 (2018-09-28)
+
+### Enhancements
+
+* (iOS) Upgrade to bugsnag-cocoa v5.17.0
+  * Capture trace of error reporting thread and identify with boolean flag
+    [#303](https://github.com/bugsnag/bugsnag-cocoa/pull/303)
+  * Prevent potential crash in session delivery during app teardown
+    [#308](https://github.com/bugsnag/bugsnag-cocoa/pull/308)
+* (Android) Upgrade to bugsnag-android v4.8.2
+  * Add compatibility with bugsnag-android-ndk v4.8.1 for C/C++ crash handling support
+    [#369](https://github.com/bugsnag/bugsnag-android/pull/369)
+  * Add ThreadSafe annotation to com.bugsnag.android, remove infer dependency
+    [#370](https://github.com/bugsnag/bugsnag-android/pull/370)
+    [#366](https://github.com/bugsnag/bugsnag-android/issues/366)
+  * Capture trace of error reporting thread and identify with boolean flag [#355](https://github.com/bugsnag/bugsnag-android/pull/355)
+  * Set maxBreadcrumbs via Configuration rather than Client [#359](https://github.com/bugsnag/bugsnag-android/pull/359)
+  * Catch Exception within DefaultDelivery class [#361](https://github.com/bugsnag/bugsnag-android/pull/361)
+  * Add Null check when accessing system service [#367](https://github.com/bugsnag/bugsnag-android/pull/367)
+  * Android P compatibility fixes - ensure available information on StrictMode violations is collected [#350](https://github.com/bugsnag/bugsnag-android/pull/350)
+  * Disable BuildConfig generation [#343](https://github.com/bugsnag/bugsnag-android/pull/343)
+  * Add consumer proguard rules for automatic ProGuard configuration without the Bugsnag gradle plugin [#345](https://github.com/bugsnag/bugsnag-android/pull/345)
+
 ## 2.10.3 (2018-09-14)
 
 ### Bug Fixes
