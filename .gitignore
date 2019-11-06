@@ -1,6 +1,7 @@
 node_modules
 example*/ios/Pods
 *.bundle
+*.tgz
 local.properties
 .idea
 *.DS_STORE
@@ -10,3 +11,9 @@ coverage
 *.iml
 Pods/
 test/app.js
+maze_output
+scenario.json
+android/local.properties
+android/android.iml
+test/tmp
+.gradle

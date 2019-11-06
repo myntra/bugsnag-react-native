@@ -27,13 +27,19 @@
 #import "BugsnagNotifier.h"
 #import "BSGConnectivity.h"
 #import "Bugsnag.h"
+#import "Private.h"
 #import "BugsnagCrashSentry.h"
 #import "BugsnagHandledState.h"
 #import "BugsnagLogger.h"
 #import "BugsnagKeys.h"
 #import "BugsnagSessionTracker.h"
+#import "BSGOutOfMemoryWatchdog.h"
 #import "BSG_RFC3339DateTool.h"
+#import "BSG_KSCrashC.h"
 #import "BSG_KSCrashType.h"
+#import "BSG_KSCrashState.h"
+#import "BSG_KSSystemInfo.h"
+#import "BSG_KSMach.h"
 
 #if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
@@ -41,7 +47,7 @@
 #import <AppKit/AppKit.h>
 #endif
 
-NSString *const NOTIFIER_VERSION = @"5.16.4";
+NSString *const NOTIFIER_VERSION = @"5.22.6";
 NSString *const NOTIFIER_URL = @"https://github.com/bugsnag/bugsnag-cocoa";
 NSString *const BSTabCrash = @"crash";
 NSString *const BSAttributeDepth = @"depth";
@@ -72,7 +78,10 @@ static NSDictionary *notificationNameMap;
 
 static char *sessionId[128];
 static char *sessionStartDate[128];
+static char *watchdogSentinelPath = NULL;
+static char *crashSentinelPath = NULL;
 static NSUInteger handledCount;
+static NSUInteger unhandledCount;
 static bool hasRecordedSessions;
 
 /**
@@ -82,37 +91,37 @@ static bool hasRecordedSessions;
  *  @param writer report writer which will receive updated metadata
  */
 void BSSerializeDataCrashHandler(const BSG_KSCrashReportWriter *writer, int type) {
-    BOOL userReported = BSG_KSCrashTypeUserReported == type;
-
+    BOOL isCrash = BSG_KSCrashTypeUserReported != type;
     if (hasRecordedSessions) { // a session is available
         // persist session info
         writer->addStringElement(writer, "id", (const char *) sessionId);
         writer->addStringElement(writer, "startedAt", (const char *) sessionStartDate);
         writer->addUIntegerElement(writer, "handledCount", handledCount);
-
-        if (!userReported) {
-            writer->addUIntegerElement(writer, "unhandledCount", 1);
-        } else {
-            writer->addUIntegerElement(writer, "unhandledCount", 0);
+        NSUInteger unhandledEvents = unhandledCount + (isCrash ? 1 : 0);
+        writer->addUIntegerElement(writer, "unhandledCount", unhandledEvents);
+    }
+    if (isCrash) {
+        if (bsg_g_bugsnag_data.configJSON) {
+            writer->addJSONElement(writer, "config", bsg_g_bugsnag_data.configJSON);
         }
-    }
-    if (bsg_g_bugsnag_data.configJSON) {
-        writer->addJSONElement(writer, "config", bsg_g_bugsnag_data.configJSON);
-    }
-    if (bsg_g_bugsnag_data.stateJSON) {
-        writer->addJSONElement(writer, "state", bsg_g_bugsnag_data.stateJSON);
-    }
-    if (bsg_g_bugsnag_data.metaDataJSON) {
-        writer->addJSONElement(writer, "metaData", bsg_g_bugsnag_data.metaDataJSON);
-    }
-
-    // write additional user-supplied metadata
-    if (userReported) {
-        if (bsg_g_bugsnag_data.handledState) {
-            writer->addJSONElement(writer, "handledState", bsg_g_bugsnag_data.handledState);
+        if (bsg_g_bugsnag_data.stateJSON) {
+            writer->addJSONElement(writer, "state", bsg_g_bugsnag_data.stateJSON);
         }
-        if (bsg_g_bugsnag_data.userOverridesJSON) {
-            writer->addJSONElement(writer, "overrides", bsg_g_bugsnag_data.userOverridesJSON);
+        if (bsg_g_bugsnag_data.metaDataJSON) {
+            writer->addJSONElement(writer, "metaData", bsg_g_bugsnag_data.metaDataJSON);
+        }
+        if (watchdogSentinelPath != NULL) {
+            // Delete the file to indicate a handled termination
+            unlink(watchdogSentinelPath);
+        }
+        if (crashSentinelPath != NULL) {
+            // Create a file to indicate that the crash has been handled by
+            // the library. This exists in case the subsequent `onCrash` handler
+            // crashes or otherwise corrupts the crash report file.
+            int fd = open(crashSentinelPath, O_RDWR | O_CREAT, 0644);
+            if (fd > -1) {
+                close(fd);
+            }
         }
     }
 
@@ -171,6 +180,7 @@ void BSSerializeJSONDictionary(NSDictionary *dictionary, char **destination) {
  */
 void BSGWriteSessionCrashData(BugsnagSession *session) {
     if (session == nil) {
+        hasRecordedSessions = false;
         return;
     }
     // copy session id
@@ -186,13 +196,16 @@ void BSGWriteSessionCrashData(BugsnagSession *session) {
 
     // record info for C JSON serialiser
     handledCount = session.handledCount;
+    unhandledCount = session.unhandledCount;
     hasRecordedSessions = true;
 }
 
 @interface BugsnagNotifier ()
 @property(nonatomic) BugsnagCrashSentry *crashSentry;
 @property(nonatomic) BugsnagErrorReportApiClient *errorReportApiClient;
-@property(nonatomic) BugsnagSessionTracker *sessionTracker;
+@property(nonatomic, readwrite) BugsnagSessionTracker *sessionTracker;
+@property (nonatomic, strong) BSGOutOfMemoryWatchdog *oomWatchdog;
+@property (nonatomic) BOOL appCrashedLastLaunch;
 @end
 
 @implementation BugsnagNotifier
@@ -200,6 +213,8 @@ void BSGWriteSessionCrashData(BugsnagSession *session) {
 @synthesize configuration;
 
 - (id)initWithConfiguration:(BugsnagConfiguration *)initConfiguration {
+    static NSString *const BSGWatchdogSentinelFileName = @"bugsnag_oom_watchdog.json";
+    static NSString *const BSGCrashSentinelFileName = @"bugsnag_handled_crash.txt";
     if ((self = [super init])) {
         self.configuration = initConfiguration;
         self.state = [[BugsnagMetaData alloc] init];
@@ -208,6 +223,17 @@ void BSGWriteSessionCrashData(BugsnagSession *session) {
             BSGKeyVersion : NOTIFIER_VERSION,
             BSGKeyUrl : NOTIFIER_URL
         } mutableCopy];
+
+        NSString *cacheDir = [NSSearchPathForDirectoriesInDomains(
+                                NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+        if (cacheDir) {
+            NSString *sentinelPath = [cacheDir stringByAppendingPathComponent:BSGWatchdogSentinelFileName];
+            NSString *crashPath = [cacheDir stringByAppendingPathComponent:BSGCrashSentinelFileName];
+            watchdogSentinelPath = strdup([sentinelPath UTF8String]);
+            crashSentinelPath = strdup([crashPath UTF8String]);
+            self.oomWatchdog = [[BSGOutOfMemoryWatchdog alloc] initWithSentinelPath:sentinelPath
+                                                                      configuration:configuration];
+        }
 
         self.metaDataLock = [[NSLock alloc] init];
         self.configuration.metaData.delegate = self;
@@ -306,6 +332,7 @@ NSString *const kAppWillTerminate = @"App Will Terminate";
     [self.crashSentry install:self.configuration
                     apiClient:self.errorReportApiClient
                       onCrash:&BSSerializeDataCrashHandler];
+    [self computeDidCrashLastLaunch];
     [self setupConnectivityListener];
     [self updateAutomaticBreadcrumbDetectionSettings];
 
@@ -363,6 +390,19 @@ NSString *const kAppWillTerminate = @"App Will Terminate";
 #endif
 
     _started = YES;
+    // autoNotify disables all unhandled event reporting
+    BOOL configuredToReportOOMs = self.configuration.reportOOMs && self.configuration.autoNotify;
+    // Disable if a debugger is enabled, since the development cycle of starting
+    // and restarting an app is also an uncatchable kill
+    BOOL noDebuggerEnabled = !bsg_ksmachisBeingTraced();
+    // Disable if in an app extension, since app extensions have a different
+    // app lifecycle and the heuristic used for finding app terminations rooted
+    // in fixable code does not apply
+    BOOL notInAppExtension = ![BSG_KSSystemInfo isRunningInAppExtension];
+    if (configuredToReportOOMs && noDebuggerEnabled && notInAppExtension) {
+        [self.oomWatchdog enable];
+    }
+
     [self.sessionTracker startNewSessionIfAutoCaptureEnabled];
 
     // notification not received in time on initial startup, so trigger manually
@@ -374,6 +414,35 @@ NSString *const kAppWillTerminate = @"App Will Terminate";
                                              selector:@selector(unsubscribeFromNotifications:)
                                                  name:name
                                                object:nil];
+}
+
+- (void)computeDidCrashLastLaunch {
+    const BSG_KSCrash_State *crashState = bsg_kscrashstate_currentState();
+#if TARGET_OS_TV || TARGET_OS_IPHONE
+    NSFileManager *manager = [NSFileManager defaultManager];
+    NSString *didCrashSentinelPath = [NSString stringWithUTF8String:crashSentinelPath];
+    BOOL appCrashSentinelExists = [manager fileExistsAtPath:didCrashSentinelPath];
+    BOOL handledCrashLastLaunch = appCrashSentinelExists || crashState->crashedLastLaunch;
+    if (appCrashSentinelExists) {
+        NSError *error = nil;
+        [manager removeItemAtPath:didCrashSentinelPath error:&error];
+        if (error) {
+            bsg_log_err(@"Failed to remove crash sentinel file: %@", error);
+            unlink(crashSentinelPath);
+        }
+    }
+    self.appCrashedLastLaunch = handledCrashLastLaunch || [self.oomWatchdog didOOMLastLaunch];
+    // Ignore potential false positive OOM if previous session crashed and was
+    // reported. There are two checks in place:
+    // 1. crashState->crashedLastLaunch: Accurate unless the crash callback crashes
+    // 2. crash sentinel file exists: This file is written in the event of a crash
+    //    and insures against the crash callback crashing
+    if (!handledCrashLastLaunch && [self.oomWatchdog didOOMLastLaunch]) {
+        [self notifyOutOfMemoryEvent];
+    }
+#else
+    self.appCrashedLastLaunch = crashState->crashedLastLaunch;
+#endif
 }
 
 /**
@@ -425,6 +494,14 @@ NSString *const kAppWillTerminate = @"App Will Terminate";
     [self.sessionTracker startNewSession];
 }
 
+- (void)stopSession {
+    [self.sessionTracker stopSession];
+}
+
+- (BOOL)resumeSession {
+    return [self.sessionTracker resumeSession];
+}
+
 - (void)flushPendingReports {
     [self.errorReportApiClient flushPendingData];
 }
@@ -448,8 +525,10 @@ NSString *const kAppWillTerminate = @"App Will Terminate";
         [BugsnagHandledState handledStateWithSeverityReason:HandledError
                                                    severity:BSGSeverityWarning
                                                   attrValue:error.domain];
-    [self notify:NSStringFromClass([error class])
-             message:error.localizedDescription
+    NSException *wrapper = [NSException exceptionWithName:NSStringFromClass([error class])
+                                                   reason:error.localizedDescription
+                                                 userInfo:error.userInfo];
+    [self notify:wrapper
         handledState:state
                block:^(BugsnagCrashReport *_Nonnull report) {
                  NSMutableDictionary *metadata = [report.metaData mutableCopy];
@@ -477,55 +556,86 @@ NSString *const kAppWillTerminate = @"App Will Terminate";
         handledStateWithSeverityReason:UserSpecifiedSeverity
                               severity:severity
                              attrValue:nil];
-    [self notify:exception.name ?: NSStringFromClass([exception class])
-             message:exception.reason
-        handledState:state
-               block:block];
+    [self notify:exception handledState:state block:block];
 }
 
 - (void)notifyException:(NSException *)exception
                   block:(void (^)(BugsnagCrashReport *))block {
     BugsnagHandledState *state =
         [BugsnagHandledState handledStateWithSeverityReason:HandledException];
-    [self notify:exception.name ?: NSStringFromClass([exception class])
-             message:exception.reason
-        handledState:state
-               block:block];
+    [self notify:exception handledState:state block:block];
 }
 
 - (void)internalClientNotify:(NSException *_Nonnull)exception
                     withData:(NSDictionary *_Nullable)metaData
                        block:(BugsnagNotifyBlock _Nullable)block {
 
-    NSString *severity = metaData[BSGKeySeverity];
+    BSGSeverity severity = BSGParseSeverity(metaData[BSGKeySeverity]);
     NSString *severityReason = metaData[BSGKeySeverityReason];
+    BOOL unhandled = [metaData[BSGKeyUnhandled] boolValue];
     NSString *logLevel = metaData[BSGKeyLogLevel];
-    NSParameterAssert(severity.length > 0);
     NSParameterAssert(severityReason.length > 0);
 
     SeverityReasonType severityReasonType =
         [BugsnagHandledState severityReasonFromString:severityReason];
 
-    BugsnagHandledState *state = [BugsnagHandledState
-        handledStateWithSeverityReason:severityReasonType
-                              severity:BSGParseSeverity(severity)
-                             attrValue:logLevel];
+    BugsnagHandledState *state = [[BugsnagHandledState alloc] initWithSeverityReason:severityReasonType
+                                                                            severity:severity
+                                                                           unhandled:unhandled
+                                                                           attrValue:logLevel];
 
-    [self notify:exception.name ?: NSStringFromClass([exception class])
-             message:exception.reason
-        handledState:state
-               block:^(BugsnagCrashReport *_Nonnull report) {
-                 if (block) {
-                     block(report);
-                 }
-               }];
+    [self notify:exception handledState:state block:block];
 }
 
-- (void)notify:(NSString *)exceptionName
-         message:(NSString *)message
+- (void)notifyOutOfMemoryEvent {
+    static NSString *const BSGOutOfMemoryErrorClass = @"Out Of Memory";
+    static NSString *const BSGOutOfMemoryMessageFormat = @"The app was likely terminated by the operating system while in the %@";
+    NSMutableDictionary *lastLaunchInfo = [[self.oomWatchdog lastBootCachedFileInfo] mutableCopy];
+    NSArray *crumbs = [self.configuration.breadcrumbs cachedBreadcrumbs];
+    if (crumbs.count > 0) {
+        lastLaunchInfo[@"breadcrumbs"] = crumbs;
+    }
+    for (NSDictionary *crumb in crumbs) {
+        if ([crumb isKindOfClass:[NSDictionary class]]
+            && [crumb[@"name"] isKindOfClass:[NSString class]]) {
+            NSString *name = crumb[@"name"];
+            // If the termination breadcrumb is set, the app entered a normal
+            // termination flow but expired before the watchdog sentinel could
+            // be updated. In this case, no report should be sent.
+            if ([name isEqualToString:kAppWillTerminate]) {
+                return;
+            }
+        }
+    }
+
+    BOOL wasInForeground = [[lastLaunchInfo valueForKeyPath:@"app.inForeground"] boolValue];
+    NSString *message = [NSString stringWithFormat:BSGOutOfMemoryMessageFormat, wasInForeground ? @"foreground" : @"background"];
+    BugsnagHandledState *handledState = [BugsnagHandledState
+                                         handledStateWithSeverityReason:LikelyOutOfMemory
+                                         severity:BSGSeverityError
+                                         attrValue:nil];
+    NSDictionary *appState = @{@"oom": lastLaunchInfo, @"didOOM": @YES};
+    [self.crashSentry reportUserException:BSGOutOfMemoryErrorClass
+                                   reason:message
+                        originalException:nil
+                             handledState:[handledState toJson]
+                                 appState:appState
+                        callbackOverrides:@{}
+                                 metadata:@{}
+                                   config:@{}
+                             discardDepth:0];
+}
+
+- (void)notify:(NSException *)exception
     handledState:(BugsnagHandledState *_Nonnull)handledState
            block:(void (^)(BugsnagCrashReport *))block {
-    [self.sessionTracker handleHandledErrorEvent];
+    NSString *exceptionName = exception.name ?: NSStringFromClass([exception class]);
+    NSString *message = exception.reason;
+    if (handledState.unhandled) {
+        [self.sessionTracker handleUnhandledErrorEvent];
+    } else {
+        [self.sessionTracker handleHandledErrorEvent];
+    }
 
     BugsnagCrashReport *report = [[BugsnagCrashReport alloc]
         initWithErrorName:exceptionName
@@ -533,23 +643,10 @@ NSString *const kAppWillTerminate = @"App Will Terminate";
             configuration:self.configuration
                  metaData:[self.configuration.metaData toDictionary]
              handledState:handledState
-                  session:self.sessionTracker.currentSession];
+                  session:self.sessionTracker.runningSession];
     if (block) {
         block(report);
     }
-
-    [self.metaDataLock lock];
-    BSSerializeJSONDictionary([report.handledState toJson],
-                              &bsg_g_bugsnag_data.handledState);
-    BSSerializeJSONDictionary(report.metaData,
-                              &bsg_g_bugsnag_data.metaDataJSON);
-    BSSerializeJSONDictionary(report.overrides,
-                              &bsg_g_bugsnag_data.userOverridesJSON);
-
-    [self.state addAttribute:BSGKeySeverity
-                   withValue:BSGFormatSeverity(report.severity)
-               toTabWithName:BSTabCrash];
-
     //    We discard 5 stack frames (including this one) by default,
     //    and sum that with the number specified by report.depth:
     //
@@ -560,23 +657,22 @@ NSString *const kAppWillTerminate = @"App Will Terminate";
     //    3 -[BugsnagCrashSentry reportUserException:reason:]
     //    4 -[BugsnagNotifier notify:message:block:]
 
-    NSNumber *depth = @(BSGNotifierStackFrameCount + report.depth);
-    [self.state addAttribute:BSAttributeDepth
-                   withValue:depth
-               toTabWithName:BSTabCrash];
+    int depth = (int)(BSGNotifierStackFrameCount + report.depth);
 
     NSString *reportName =
         report.errorClass ?: NSStringFromClass([NSException class]);
     NSString *reportMessage = report.errorMessage ?: @"";
 
-    [self.crashSentry reportUserException:reportName reason:reportMessage];
-    bsg_g_bugsnag_data.userOverridesJSON = NULL;
-    bsg_g_bugsnag_data.handledState = NULL;
+    [self.crashSentry reportUserException:reportName
+                                   reason:reportMessage
+                        originalException:exception
+                             handledState:[handledState toJson]
+                                 appState:[self.state toDictionary]
+                        callbackOverrides:report.overrides
+                                 metadata:[report.metaData copy]
+                                   config:[self.configuration.config toDictionary]
+                             discardDepth:depth];
 
-    // Restore metaData to pre-crash state.
-    [self.metaDataLock unlock];
-    [self metaDataChanged:self.configuration.metaData];
-    [[self state] clearTab:BSTabCrash];
     [self addBreadcrumbWithBlock:^(BugsnagBreadcrumb *_Nonnull crumb) {
       crumb.type = BSGBreadcrumbTypeError;
       crumb.name = reportName;
@@ -708,6 +804,21 @@ NSString *const kAppWillTerminate = @"App Will Terminate";
     }
 }
 #endif
+
+- (void)updateCrashDetectionSettings {
+    if (self.configuration.autoNotify) {
+        // Enable all crash detection
+        bsg_kscrash_setHandlingCrashTypes(BSG_KSCrashTypeAll);
+        if (self.configuration.reportOOMs) {
+            [self.oomWatchdog enable];
+        }
+    } else {
+        // Only enable support for notify()-based reports
+        bsg_kscrash_setHandlingCrashTypes(BSG_KSCrashTypeUserReported);
+        // autoNotify gates all unhandled report detection
+        [self.oomWatchdog disable];
+    }
+}
 
 - (void)updateAutomaticBreadcrumbDetectionSettings {
     if ([self.configuration automaticallyCollectBreadcrumbs]) {

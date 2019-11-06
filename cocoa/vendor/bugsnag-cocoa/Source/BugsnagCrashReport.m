@@ -18,7 +18,6 @@
 #import "BugsnagHandledState.h"
 #import "BugsnagLogger.h"
 #import "BugsnagKeys.h"
-#import "NSDictionary+BSG_Merge.h"
 #import "BugsnagKSCrashSysInfoParser.h"
 #import "BugsnagSession.h"
 #import "BSG_RFC3339DateTool.h"
@@ -70,7 +69,8 @@ NSMutableDictionary *BSGFormatFrame(NSDictionary *frame,
 }
 
 NSString *_Nonnull BSGParseErrorClass(NSDictionary *error,
-                                      NSString *errorType) {
+                                      NSString *errorType,
+                                      NSString *fallbackValue) {
     NSString *errorClass;
 
     if ([errorType isEqualToString:BSGKeyCppException]) {
@@ -86,7 +86,7 @@ NSString *_Nonnull BSGParseErrorClass(NSDictionary *error,
     }
 
     if (!errorClass) { // use a default value
-        errorClass = @"Exception";
+        errorClass = fallbackValue.length > 0 ? fallbackValue : @"Exception";
     }
     return errorClass;
 }
@@ -102,6 +102,14 @@ NSString *BSGParseErrorMessage(NSDictionary *report, NSDictionary *error,
     return error[BSGKeyReason] ?: @"";
 }
 
+id BSGLoadConfigValue(NSDictionary *report, NSString *valueName) {
+    NSString *keypath = [NSString stringWithFormat:@"user.config.%@", valueName];
+    NSString *fallbackKeypath = [NSString stringWithFormat:@"user.config.config.%@", valueName];
+
+    return [report valueForKeyPath:keypath]
+    ?: [report valueForKeyPath:fallbackKeypath]; // some custom values are nested
+}
+
 NSString *BSGParseContext(NSDictionary *report, NSDictionary *metaData) {
     id context = [report valueForKeyPath:@"user.overrides.context"];
     if ([context isKindOfClass:[NSString class]])
@@ -109,7 +117,7 @@ NSString *BSGParseContext(NSDictionary *report, NSDictionary *metaData) {
     context = metaData[BSGKeyContext];
     if ([context isKindOfClass:[NSString class]])
         return context;
-    context = [report valueForKeyPath:@"user.config.context"];
+    context = BSGLoadConfigValue(report, @"context");
     if ([context isKindOfClass:[NSString class]])
         return context;
     return nil;
@@ -132,7 +140,7 @@ NSArray *BSGParseBreadcrumbs(NSDictionary *report) {
 
 NSString *BSGParseReleaseStage(NSDictionary *report) {
     return [report valueForKeyPath:@"user.overrides.releaseStage"]
-               ?: [report valueForKeyPath:@"user.config.releaseStage"];
+               ?: BSGLoadConfigValue(report, @"releaseStage");
 }
 
 BSGSeverity BSGParseSeverity(NSString *severity) {
@@ -184,6 +192,13 @@ static NSString *const DEFAULT_EXCEPTION_TYPE = @"cocoa";
 - (instancetype)initWithClass:(NSString *_Nonnull)errorClass message:(NSString *_Nonnull)errorMessage NS_DESIGNATED_INITIALIZER;
 @end
 
+@interface FallbackReportData : NSObject
+@property (nonatomic, strong) NSString *errorClass;
+@property (nonatomic, getter=isUnhandled) BOOL unhandled;
+@property (nonatomic) BSGSeverity severity;
+- (instancetype)initWithMetadata:(NSString *)metadata;
+@end
+
 @interface BugsnagCrashReport ()
 
 /**
@@ -210,69 +225,103 @@ static NSString *const DEFAULT_EXCEPTION_TYPE = @"cocoa";
  *  User-provided exception metadata
  */
 @property(nonatomic, readwrite, copy, nullable) NSDictionary *customException;
-@property(nonatomic) BugsnagSession *session;
+@property(nonatomic, strong) BugsnagSession *session;
 
+@property (nonatomic, readwrite, getter=isIncomplete) BOOL incomplete;
 @end
 
 @implementation BugsnagCrashReport
 
 - (instancetype)initWithKSReport:(NSDictionary *)report {
-    if (self = [super init]) {
-        _notifyReleaseStages =
-            [report valueForKeyPath:@"user.config.notifyReleaseStages"];
-        _releaseStage = BSGParseReleaseStage(report);
+    return [self initWithKSReport:report fileMetadata:@""];
+}
 
+- (instancetype)initWithKSReport:(NSDictionary *)report
+                    fileMetadata:(NSString *)metadata {
+    if (self = [super init]) {
         _error = [report valueForKeyPath:@"crash.error"];
         _errorType = _error[BSGKeyType];
-        _threads = [report valueForKeyPath:@"crash.threads"];
-        RegisterErrorData *data = [RegisterErrorData errorDataFromThreads:_threads];
-        if (data) {
-            _errorClass = data.errorClass;
-            _errorMessage = data.errorMessage;
-        } else {
-            _errorClass = BSGParseErrorClass(_error, _errorType);
+        if ([[report valueForKeyPath:@"user.state.didOOM"] boolValue]) {
+            _errorClass = BSGParseErrorClass(_error, _errorType, nil);
             _errorMessage = BSGParseErrorMessage(report, _error, _errorType);
-        }
-        _binaryImages = report[@"binary_images"];
-        _breadcrumbs = BSGParseBreadcrumbs(report);
-        _dsymUUID = [report valueForKeyPath:@"system.app_uuid"];
-        _deviceAppHash = [report valueForKeyPath:@"system.device_app_hash"];
-        _metaData =
-            [report valueForKeyPath:@"user.metaData"] ?: [NSDictionary new];
-        _context = BSGParseContext(report, _metaData);
-        _deviceState = BSGParseDeviceState(report);
-        _device = BSGParseDevice(report);
-        _app = BSGParseApp(report);
-        _appState = BSGParseAppState(report[BSGKeySystem], [report valueForKeyPath:@"user.config.appVersion"]);
-        _groupingHash = BSGParseGroupingHash(report, _metaData);
-        _overrides = [report valueForKeyPath:@"user.overrides"];
-        _customException = BSGParseCustomException(report, [_errorClass copy],
-                                                   [_errorMessage copy]);
+            _breadcrumbs = [report valueForKeyPath:@"user.state.oom.breadcrumbs"];
+            _app = [report valueForKeyPath:@"user.state.oom.app"];
+            _device = [report valueForKeyPath:@"user.state.oom.device"];
+            _releaseStage = [report valueForKeyPath:@"user.state.oom.app.releaseStage"];
+            _handledState = [BugsnagHandledState handledStateWithSeverityReason:LikelyOutOfMemory];
+            _deviceAppHash = [report valueForKeyPath:@"user.state.oom.device.id"];
+            _metaData = [NSMutableDictionary new];
+            NSDictionary *sessionData = [report valueForKeyPath:@"user.state.oom.session"];
+            if (sessionData) {
+                _session = [[BugsnagSession alloc] initWithDictionary:sessionData];
+                _session.unhandledCount += 1; // include own event
+                if (_session.user) {
+                    _metaData = @{@"user": [_session.user toJson]};
+                }
+            }
+        } else {
+            FallbackReportData *fallback = [[FallbackReportData alloc] initWithMetadata:metadata];
+            _notifyReleaseStages = BSGLoadConfigValue(report, @"notifyReleaseStages");
+            _releaseStage = BSGParseReleaseStage(report);
+            _incomplete = report.count == 0;
+            _threads = [report valueForKeyPath:@"crash.threads"];
+            RegisterErrorData *data = [RegisterErrorData errorDataFromThreads:_threads];
+            if (data) {
+                _errorClass = data.errorClass ?: fallback.errorClass;
+                _errorMessage = data.errorMessage;
+            } else {
+                _errorClass = BSGParseErrorClass(_error, _errorType, fallback.errorClass);
+                _errorMessage = BSGParseErrorMessage(report, _error, _errorType);
+            }
+            _binaryImages = report[@"binary_images"];
+            _breadcrumbs = BSGParseBreadcrumbs(report);
+            _dsymUUID = [report valueForKeyPath:@"system.app_uuid"];
+            _deviceAppHash = [report valueForKeyPath:@"system.device_app_hash"];
+            _metaData =
+                [report valueForKeyPath:@"user.metaData"] ?: [NSDictionary new];
+            _context = BSGParseContext(report, _metaData);
+            _deviceState = BSGParseDeviceState(report);
+            _device = BSGParseDevice(report);
+            _app = BSGParseApp(report);
+            _appState = BSGParseAppState(report[BSGKeySystem],
+                                         BSGLoadConfigValue(report, @"appVersion"),
+                                         _releaseStage, // Already loaded from config
+                                         BSGLoadConfigValue(report, @"codeBundleId"));
+            _groupingHash = BSGParseGroupingHash(report, _metaData);
+            _overrides = [report valueForKeyPath:@"user.overrides"];
+            _customException = BSGParseCustomException(report, [_errorClass copy],
+                                                       [_errorMessage copy]);
 
-        NSDictionary *recordedState =
-            [report valueForKeyPath:@"user.handledState"];
+            NSDictionary *recordedState =
+                [report valueForKeyPath:@"user.handledState"];
 
-        if (recordedState) {
-            _handledState =
-                [[BugsnagHandledState alloc] initWithDictionary:recordedState];
+            if (recordedState) {
+                _handledState =
+                    [[BugsnagHandledState alloc] initWithDictionary:recordedState];
 
-            // only makes sense to use serialised value for handled exceptions
-            _depth = [[report valueForKeyPath:@"user.state.crash.depth"]
-                    unsignedIntegerValue];
-        } else { // the event was unhandled.
-            BOOL isSignal = [BSGKeySignal isEqualToString:_errorType];
-            SeverityReasonType severityReason =
-                isSignal ? Signal : UnhandledException;
-            _handledState = [BugsnagHandledState
-                handledStateWithSeverityReason:severityReason
-                                      severity:BSGSeverityError
-                                     attrValue:_errorClass];
-            _depth = 0;
-        }
-        _severity = _handledState.currentSeverity;
+                // only makes sense to use serialised value for handled exceptions
+                _depth = [[report valueForKeyPath:@"user.depth"]
+                        unsignedIntegerValue];
+            } else if (_errorType != nil) { // the event was unhandled.
+                BOOL isSignal = [BSGKeySignal isEqualToString:_errorType];
+                SeverityReasonType severityReason =
+                    isSignal ? Signal : UnhandledException;
+                _handledState = [BugsnagHandledState
+                    handledStateWithSeverityReason:severityReason
+                                          severity:BSGSeverityError
+                                         attrValue:_errorClass];
+                _depth = 0;
+            } else { // Incomplete report
+                SeverityReasonType severityReason = [fallback isUnhandled] ? UnhandledException : HandledError;
+                _handledState = [BugsnagHandledState handledStateWithSeverityReason:severityReason
+                                                                           severity:fallback.severity
+                                                                          attrValue:nil];
+            }
+            _severity = _handledState.currentSeverity;
 
-        if (report[@"user"][@"id"]) {
-            _session = [[BugsnagSession alloc] initWithDictionary:report[@"user"]];
+            if (report[@"user"][@"id"]) {
+                _session = [[BugsnagSession alloc] initWithDictionary:report[@"user"]];
+            }
         }
     }
     return self;
@@ -478,8 +527,12 @@ initWithErrorName:(NSString *_Nonnull)name
     BSGDictSetSafeObject(event, BSGFormatSeverity(self.severity), BSGKeySeverity);
     BSGDictSetSafeObject(event, [self breadcrumbs], BSGKeyBreadcrumbs);
     BSGDictSetSafeObject(event, metaData, BSGKeyMetaData);
-    
-    NSDictionary *device = [self.device bsg_mergedInto:self.deviceState];
+
+    if ([self isIncomplete]) {
+        BSGDictSetSafeObject(event, @YES, BSGKeyIncomplete);
+    }
+
+    NSDictionary *device = BSGDictMerge(self.device, self.deviceState);
     BSGDictSetSafeObject(event, device, BSGKeyDevice);
     
     NSMutableDictionary *appObj = [NSMutableDictionary new];
@@ -553,12 +606,13 @@ initWithErrorName:(NSString *_Nonnull)name
 // Build all stacktraces for threads and the error
 - (NSArray *)serializeThreadsWithException:(NSMutableDictionary *)exception {
     NSMutableArray *bugsnagThreads = [NSMutableArray array];
-    for (NSDictionary *thread in [self threads]) {
+
+    for (NSDictionary *thread in self.threads) {
         NSArray *backtrace = thread[@"backtrace"][@"contents"];
         BOOL stackOverflow = [thread[@"stack"][@"overflow"] boolValue];
-        BOOL isCrashedThread = [thread[@"crashed"] boolValue];
+        BOOL isReportingThread = [thread[@"crashed"] boolValue];
         
-        if (isCrashedThread) {
+        if (isReportingThread) {
             NSUInteger seen = 0;
             NSMutableArray *stacktrace = [NSMutableArray array];
 
@@ -570,7 +624,7 @@ initWithErrorName:(NSString *_Nonnull)name
                         BSGDictSetSafeObject(mutableFrame, @YES, BSGKeyIsPC);
                     }
                     if (seen == 2 && !stackOverflow &&
-                        [@[ BSGKeySignal, @"deadlock", BSGKeyMach ]
+                        [@[ BSGKeySignal, BSGKeyMach ]
                             containsObject:[self errorType]]) {
                         BSGDictSetSafeObject(mutableFrame, @YES, BSGKeyIsLR);
                     }
@@ -579,33 +633,74 @@ initWithErrorName:(NSString *_Nonnull)name
                         BSGFormatFrame(mutableFrame, [self binaryImages]));
                 }
             }
-
             BSGDictSetSafeObject(exception, stacktrace, BSGKeyStacktrace);
-        } else {
-            NSMutableArray *threadStack = [NSMutableArray array];
-
-            for (NSDictionary *frame in backtrace) {
-                BSGArrayInsertIfNotNil(
-                    threadStack, BSGFormatFrame(frame, [self binaryImages]));
-            }
-
-            NSMutableDictionary *threadDict = [NSMutableDictionary dictionary];
-            BSGDictSetSafeObject(threadDict, thread[@"index"], BSGKeyId);
-            BSGDictSetSafeObject(threadDict, threadStack, BSGKeyStacktrace);
-            BSGDictSetSafeObject(threadDict, DEFAULT_EXCEPTION_TYPE, BSGKeyType);
-            // only if this is enabled in BSG_KSCrash.
-            if (thread[BSGKeyName]) {
-                BSGDictSetSafeObject(threadDict, thread[BSGKeyName], BSGKeyName);
-            }
-
-            BSGArrayAddSafeObject(bugsnagThreads, threadDict);
         }
+        [self serialiseThread:bugsnagThreads thread:thread backtrace:backtrace reportingThread:isReportingThread];
     }
     return bugsnagThreads;
 }
 
+- (void)serialiseThread:(NSMutableArray *)bugsnagThreads
+                 thread:(NSDictionary *)thread
+              backtrace:(NSArray *)backtrace
+          reportingThread:(BOOL)isReportingThread {
+    NSMutableArray *threadStack = [NSMutableArray array];
+
+    for (NSDictionary *frame in backtrace) {
+                BSGArrayInsertIfNotNil(
+                    threadStack, BSGFormatFrame(frame, [self binaryImages]));
+            }
+
+    NSMutableDictionary *threadDict = [NSMutableDictionary dictionary];
+    BSGDictSetSafeObject(threadDict, thread[@"index"], BSGKeyId);
+    BSGDictSetSafeObject(threadDict, threadStack, BSGKeyStacktrace);
+    BSGDictSetSafeObject(threadDict, DEFAULT_EXCEPTION_TYPE, BSGKeyType);
+
+    if (isReportingThread) {
+        BSGDictSetSafeObject(threadDict, @YES, @"errorReportingThread");
+    }
+
+    BSGArrayAddSafeObject(bugsnagThreads, threadDict);
+}
+
 - (NSString *_Nullable)enhancedErrorMessageForThread:(NSDictionary *_Nullable)thread {
     return [self errorMessage];
+}
+
+@end
+
+@implementation FallbackReportData
+
+- (instancetype)initWithMetadata:(NSString *)metadata {
+    if (self = [super init]) {
+        NSString *separator = @"-";
+        NSString *location = metadata;
+        NSRange range = [location rangeOfString:separator options:NSBackwardsSearch];
+        if (range.location != NSNotFound) {
+            _errorClass = [location substringFromIndex:range.location + 1];
+            location = [location substringToIndex:range.location];
+        }
+        range = [location rangeOfString:separator options:NSBackwardsSearch];
+        if (range.location != NSNotFound) {
+            NSString *value = [location substringFromIndex:range.location + 1];
+            _unhandled = ![value isEqualToString:@"h"];
+            location = [location substringToIndex:range.location + 1];
+        } else {
+            _unhandled = YES;
+        }
+        range = [location rangeOfString:separator options:NSBackwardsSearch];
+        if (range.location != NSNotFound) {
+            NSString *value = [location substringFromIndex:range.location];
+            if ([value isEqualToString:@"w"]) {
+                _severity = BSGSeverityWarning;
+            } else if ([value isEqualToString:@"i"]) {
+                _severity = BSGSeverityInfo;
+            } else {
+                _severity = BSGSeverityError;
+            }
+        }
+    }
+    return self;
 }
 
 @end
@@ -621,9 +716,6 @@ initWithErrorName:(NSString *_Nonnull)name
         NSString *reservedWord = nil;
 
         for (NSString *key in notableAddresses) {
-            if ([key hasPrefix:@"stack"]) { // skip stack frames, only use register values
-                continue;
-            }
             NSDictionary *data = notableAddresses[key];
             if (![@"string" isEqualToString:data[BSGKeyType]]) {
                 continue;

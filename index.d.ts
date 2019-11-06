@@ -1,7 +1,7 @@
 export class Client {
   public config: Configuration;
 
-  constructor(apiKeyOrConfig: string | Configuration);
+  constructor(apiKeyOrConfig?: string | Configuration);
 
   public notify(
     error: Error,
@@ -10,11 +10,15 @@ export class Client {
     postSendCallback?: (sent: boolean) => void,
   ): void;
 
-  public setUser(id: string, name: string, email: string): void;
+  public setUser(id?: string, name?: string, email?: string): void;
 
   public clearUser(): void;
 
   public startSession(): void;
+
+  public stopSession(): void;
+
+  public resumeSession(): void;
 
   public enableConsoleBreadcrumbs(): void;
 

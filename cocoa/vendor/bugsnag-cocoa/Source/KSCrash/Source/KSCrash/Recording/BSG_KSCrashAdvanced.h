@@ -28,12 +28,6 @@
 #import "BSG_KSCrashReportFilter.h"
 #import "BSG_KSCrashReportStore.h"
 
-typedef enum {
-    BSG_KSCrashDemangleLanguageCPlusPlus = 1,
-    BSG_KSCrashDemangleLanguageSwift = 2,
-    BSG_KSCrashDemangleLanguageAll = ~1
-} BSG_KSCrashDemangleLanguage;
-
 /**
  * Advanced interface to the BSG_KSCrash system.
  */
@@ -72,11 +66,6 @@ typedef enum {
  * (default 5) */
 @property(nonatomic, readwrite, assign) int maxStoredReports;
 
-/** Which languages to demangle when getting stack traces (default
- * BSG_KSCrashDemangleLanguageAll) */
-@property(nonatomic, readwrite, assign)
-    BSG_KSCrashDemangleLanguage demangleLanguages;
-
 /** The total number of unsent reports. Note: This is an expensive operation.
  */
 - (NSUInteger)reportCount;
@@ -84,6 +73,10 @@ typedef enum {
 /** Get all reports, with data types corrected, as dictionaries.
  */
 - (NSArray *)allReports;
+
+/** Get all reports as dictionaries, indexed by file name.
+ */
+- (NSDictionary <NSString *, NSDictionary *> *)allReportsByFilename;
 
 #pragma mark - Configuration -
 
@@ -156,7 +149,7 @@ typedef enum {
  * @param reports The reports to send.
  * @param onCompletion Called when sending is complete (nil = ignore).
  */
-- (void)sendReports:(NSArray *)reports
+- (void)sendReports:(NSDictionary <NSString *, NSDictionary *> *)reports
        onCompletion:(BSG_KSCrashReportFilterCompletion)onCompletion;
 
 @end

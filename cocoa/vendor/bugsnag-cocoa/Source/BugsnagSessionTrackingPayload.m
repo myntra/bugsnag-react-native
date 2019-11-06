@@ -28,8 +28,7 @@
 }
 
 
-- (NSDictionary *)toJson {
-    
+- (NSMutableDictionary *)toJson {
     NSMutableDictionary *dict = [NSMutableDictionary new];
     NSMutableArray *sessionData = [NSMutableArray new];
     
@@ -40,9 +39,12 @@
     BSGDictSetSafeObject(dict, [Bugsnag notifier].details, BSGKeyNotifier);
     
     NSDictionary *systemInfo = [BSG_KSSystemInfo systemInfo];
-    BSGDictSetSafeObject(dict, BSGParseAppState(systemInfo, [Bugsnag configuration].appVersion), @"app");
+    BSGDictSetSafeObject(dict, BSGParseAppState(systemInfo,
+                                                [Bugsnag configuration].appVersion,
+                                                [Bugsnag configuration].releaseStage,
+                                                [Bugsnag configuration].codeBundleId), @"app");
     BSGDictSetSafeObject(dict, BSGParseDeviceState(systemInfo), @"device");
-    return [NSDictionary dictionaryWithDictionary:dict];
+    return dict;
 }
 
 @end

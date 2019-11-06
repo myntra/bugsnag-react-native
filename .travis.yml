@@ -1,13 +1,14 @@
 jobs:
   include:
     - stage: test
-      sudo: false
-      language: javascript
+      language: node_js
+      node_js:
+        - "10"
       install: npm install
       script: npm run test:lint:js && npm run test:unit:js && npm run test:smoke:typescript
     - stage: build
       language: android
-      sudo: false
+      dist: trusty
       android:
         components:
          - tools
@@ -24,32 +25,27 @@ jobs:
           - $HOME/.gradle/caches/
           - $HOME/.gradle/wrapper/
           - $HOME/.android/build-cache
-      env:
-        - ANDROID_TARGET=android-26 ANDROID_ABI=armeabi-v7a
-        - ADB-INSTALL_TIMEOUT=5
       before_install:
         - yes | sdkmanager "platforms;android-26"
         - yes | sdkmanager "platforms;android-23"
-      install:
-        - curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash -
-        - sudo apt-get install -y nodejs
+        - nvm install 8
       before_script:
         - npm install
         - npm install babel-cli
         - PATH="node_modules/bin:$PATH" && npm pack
       script:
         - cd examples/plain
-        - yarn add ../../bugsnag-react-native-*.tgz
-        - yarn install
+        - npm add ../../bugsnag-react-native-*.tgz
+        - npm install
         - ./node_modules/.bin/react-native link
         - cd android
-        - ./gradlew assembleRelease
+        - ./gradlew lint checkstyle assembleRelease
       licenses:
         -
     - stage: build
       language: objective-c
       os: osx
-      osx_image: xcode9.3
+      osx_image: xcode10
       cache:
         - bundler
         - cocoapods
@@ -67,4 +63,27 @@ jobs:
         - yarn install
         - ./node_modules/.bin/react-native link
         - cd ios
-        - xcodebuild -project BugsnagReactNativeExample.xcodeproj -scheme BugsnagReactNativeExample build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO -quiet
+        - xcodebuild -project BugsnagReactNativeExample.xcodeproj -scheme BugsnagReactNativeExample build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO -UseModernBuildSystem=NO -quiet
+    - stage: build
+      language: objective-c
+      os: osx
+      osx_image: xcode9.2
+      cache:
+        - bundler
+        - cocoapods
+      xcode_project: ./cocoa/BugsnagReactNative.xcodeproj
+      xcode_scheme: BugsnagReactNative
+      install:
+        - brew install yarn
+      before_script:
+        - npm install
+        - npm install babel-cli
+        - PATH="node_modules/bin:$PATH" && npm pack
+      script:
+        - cd examples/plain
+        - yarn add react-native@0.53.0
+        - yarn add ../../bugsnag-react-native-*.tgz
+        - yarn install
+        - ./node_modules/.bin/react-native link
+        - cd ios
+        - xcodebuild -project BugsnagReactNativeExample.xcodeproj -scheme BugsnagReactNativeExample build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO -UseModernBuildSystem=NO -quiet

@@ -13,7 +13,23 @@
 #import "BugsnagConfiguration.h"
 #import "BugsnagLogger.h"
 
-#define PLATFORM_WORD_SIZE sizeof(void*)*8
+NSNumber *BSGDeviceFreeSpace(NSSearchPathDirectory directory) {
+    NSNumber *freeBytes = nil;
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSArray *searchPaths = NSSearchPathForDirectoriesInDomains(directory, NSUserDomainMask, true);
+    NSString *path = [searchPaths lastObject];
+    
+    NSError *error;
+    NSDictionary *fileSystemAttrs =
+    [fileManager attributesOfFileSystemForPath:path error:&error];
+    
+    if (error) {
+        bsg_log_warn(@"Failed to read free disk space: %@", error);
+    } else {
+        freeBytes = [fileSystemAttrs objectForKey:NSFileSystemFreeSize];
+    }
+    return freeBytes;
+}
 
 NSDictionary *BSGParseDevice(NSDictionary *report) {
     NSMutableDictionary *device = [NSMutableDictionary new];
@@ -33,22 +49,11 @@ NSDictionary *BSGParseDevice(NSDictionary *report) {
                          [report valueForKeyPath:@"system.memory.free"],
                          @"freeMemory");
     
+    BSGDictSetSafeObject(device, [report valueForKeyPath:@"report.timestamp"], @"time");
     
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    NSArray *searchPaths = NSSearchPathForDirectoriesInDomains(
-                                                               NSDocumentDirectory, NSUserDomainMask, true);
-    NSString *path = [searchPaths lastObject];
+    BSGDictSetSafeObject(device, BSGDeviceFreeSpace(NSCachesDirectory), @"freeDisk");
+
     
-    NSError *error;
-    NSDictionary *fileSystemAttrs =
-    [fileManager attributesOfFileSystemForPath:path error:&error];
-    
-    if (error) {
-        bsg_log_warn(@"Failed to read free disk space: %@", error);
-    }
-    
-    NSNumber *freeBytes = [fileSystemAttrs objectForKey:NSFileSystemFreeSize];
-    BSGDictSetSafeObject(device, freeBytes, @"freeDisk");
     BSGDictSetSafeObject(device, report[@"system"][@"device_app_hash"], @"id");
 
 #if TARGET_OS_SIMULATOR
@@ -85,17 +90,17 @@ NSDictionary *BSGParseApp(NSDictionary *report) {
     return appState;
 }
 
-NSDictionary *BSGParseAppState(NSDictionary *report, NSString *preferredVersion) {
+NSDictionary *BSGParseAppState(NSDictionary *report, NSString *preferredVersion, NSString *releaseStage, NSString *codeBundleId) {
     NSMutableDictionary *app = [NSMutableDictionary dictionary];
 
     NSString *version = preferredVersion ?: report[@"CFBundleShortVersionString"];
 
     BSGDictSetSafeObject(app, report[@"CFBundleVersion"], @"bundleVersion");
-    BSGDictSetSafeObject(app, [Bugsnag configuration].releaseStage,
+    BSGDictSetSafeObject(app, releaseStage,
                          BSGKeyReleaseStage);
     BSGDictSetSafeObject(app, version, BSGKeyVersion);
     
-    BSGDictSetSafeObject(app, [Bugsnag configuration].codeBundleId, @"codeBundleId");
+    BSGDictSetSafeObject(app, codeBundleId, @"codeBundleId");
     
     NSString *notifierType;
 #if TARGET_OS_TV
@@ -119,7 +124,12 @@ NSDictionary *BSGParseDeviceState(NSDictionary *report) {
     BSGDictSetSafeObject(deviceState, report[@"machine"], @"model");
     BSGDictSetSafeObject(deviceState, report[@"system_name"], @"osName");
     BSGDictSetSafeObject(deviceState, report[@"system_version"], @"osVersion");
-    BSGDictSetSafeObject(deviceState, report[@"os_version"], @"osBuild");
+
+    NSMutableDictionary *runtimeVersions = [NSMutableDictionary new];
+    BSGDictSetSafeObject(runtimeVersions, report[@"os_version"], @"osBuild");
+    BSGDictSetSafeObject(runtimeVersions, report[@"clang_version"], @"clangVersion");
+    BSGDictSetSafeObject(deviceState, runtimeVersions, @"runtimeVersions");
+
     BSGDictSetSafeObject(deviceState, @(PLATFORM_WORD_SIZE), @"wordSize");
     BSGDictSetSafeObject(deviceState, @"Apple", @"manufacturer");
     BSGDictSetSafeObject(deviceState, report[@"jailbroken"], @"jailbroken");
